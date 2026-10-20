@@ -227,6 +227,10 @@ body{margin:0;padding-left:env(safe-area-inset-left,0px);padding-right:env(safe-
 .evgrp .gh{display:flex;align-items:center;gap:.6rem;flex-wrap:wrap;padding:.5rem .6rem;background:var(--accent-soft);border-radius:6px;position:sticky;top:0;z-index:1}
 .evgrp .gh small{color:var(--muted);font-size:.8rem}
 .evgrp .gh .btn{margin-left:auto}
+
+.phflow{display:flex;flex-wrap:wrap;gap:.7rem;align-items:flex-start;margin:.4rem 0}
+.phflow figure{margin:0;max-width:100%;break-inside:avoid}
+.phflow img{display:block;height:auto;max-width:100%;border-radius:0}
 </style>
 
 </head>
@@ -485,7 +489,7 @@ window.claude={use:async function(k){await gate;return{db:db,user:user,downloads
 (function(){
 'use strict';
 /* ---------- constants ---------- */
-var ROLES=['社工','督導','總督導','區處長'];
+var ROLES=['社工','督導'];
 var FYLIST=(function(){var a=[];for(var i=20;i<=60;i++)a.push('FY'+i);return a})();
 var STATUS=['草稿','待督導核示','待總督導核示','待區處長核示','執行中','結案待報告','已結案'];
 var APPROVER={'待督導核示':'督導','待總督導核示':'總督導','待區處長核示':'區處長'};
@@ -1693,6 +1697,7 @@ function render(){
   mine.sort(sorter);all.sort(sorter);rev.sort(sorter);
   var role=myRole();
   if(!isSup()&&(V.tab==='all'||V.tab==='review'))V.tab='home';
+  if(supOn()&&(V.tab==='home'||V.tab==='all'||V.tab==='review'))V.tab='sup';
   if(V.tab==='sup'&&!supOn())V.tab='home';
   if(V.tab==='sup'&&!TS&&!TM.loading&&!TM.err)supLoad(false);
   if(V.tab==='project'&&!S.projects.get(V.pid)){V.tab='home';V.pid=null}
@@ -1703,7 +1708,7 @@ function render(){
   else if(V.tab==='poa')main=poaView();
   else if(V.tab==='review')main=homeView(rev,'待我審核','輪到你的角色('+role+')核示的方案。',false);
   else main=homeView(mine,'我的方案','你主責的所有方案,可用餘額與近期活動一目了然。',true);
-  var nav=[['home','我的方案']].concat(supOn()?[['sup','督導系統']]:[]).concat([['poa','年度 POA']]);
+  var nav=(supOn()?[['sup','督導系統']]:[['home','我的方案']]).concat([['poa','年度 POA']]);
   var cur=V.tab==='project'?(V.from||'home'):V.tab;
   app.innerHTML='<div class="top"><div class="wrap"><span class="brand">方案成果管理系統</span><nav class="nav" aria-label="主選單">'+nav.map(function(n){return'<button data-a="nav" data-v="'+n[0]+'"'+(cur===n[0]?' aria-current="true"':'')+'>'+n[1]+'</button>'}).join('')+'</nav><div class="who"><button class="btn sm" data-a="profile" title="修改顯示姓名與身分">'+esc(myName()||'設定姓名')+' ✎</button>'+window.__cloudButtons()+'<label for="rolesel" class="ro">身分</label><select id="rolesel" data-change="role">'+ROLES.map(function(r){return'<option'+(r===role?' selected':'')+'>'+r+'</option>'}).join('')+'</select></div></div></div>'
    +'<main class="wrap">'+(canWrite?'':'<div class="note warn" style="margin-top:1rem">你目前是唯讀身分,可以瀏覽但不能修改資料。請向方案擁有者要求「協作者」權限。</div>')+main+'</main>';
@@ -2103,8 +2108,8 @@ function supReport(doc){
       if(String(e.summary||'').trim())h+='<p><b>執行概況</b><br>'+nl(e.summary)+'</p>';
       if(e.phN>0){
         if(!ph)h+='<p class="rem">照片載入中…(共 '+e.phN+' 張)</p>';
-        else if(doc){h+='<table class="ph"><tbody>';for(var j=0;j<ph.length;j+=2){h+='<tr>'+[ph[j],ph[j+1]].map(function(x){return'<td style="width:50%">'+(x?'<img src="'+x.u+'" width="300" alt="'+esc(x.c||'活動照片')+'">'+(x.c?'<br>'+esc(x.c):''):'')+'</td>'}).join('')+'</tr>'}h+='</tbody></table>'}
-        else h+='<div class="phgrid ph">'+ph.map(function(x,j){return'<figure><img src="'+esc(x.u)+'" alt="'+esc(x.c||'活動照片')+'" data-a="supImg" data-id="'+esc(e.id)+'" data-n="'+j+'" style="cursor:zoom-in">'+(x.c?'<figcaption class="rem">'+esc(x.c)+'</figcaption>':'')+'</figure>'}).join('')+'</div>';
+        else if(doc){ph.forEach(function(x){var w=x.w?Math.min(x.w,600):0,hh=w&&x.h?Math.round(x.h*w/x.w):0;h+='<p style="margin:6pt 0"><img src="'+x.u+'"'+(w?' width="'+w+'"'+(hh?' height="'+hh+'"':''):'')+' alt="'+esc(x.c||'活動照片')+'">'+(x.c?'<br>'+esc(x.c):'')+'</p>'})}
+        else h+='<div class="phflow">'+ph.map(function(x,j){return'<figure><img src="'+esc(x.u)+'" alt="'+esc(x.c||'活動照片')+'" data-a="supImg" data-id="'+esc(e.id)+'" data-n="'+j+'" style="cursor:zoom-in;'+(x.w?'width:'+x.w+'px;':'')+'max-width:100%;height:auto">'+(x.c?'<figcaption class="rem">'+esc(x.c)+'</figcaption>':'')+'</figure>'}).join('')+'</div>';
       }
     });
   });
@@ -2115,6 +2120,7 @@ async function supFetchPh(evs,onStep){
   for(var i=0;i<need.length;i+=4){
     var b=need.slice(i,i+4),r=await window.__team.photos(b.map(function(e){return{uid:e._src,eventId:e.id}}));
     b.forEach(function(e){PHC[e.id]={n:e.phN,list:(r.photos&&r.photos[e.id])||[]}});
+    await Promise.all(b.reduce(function(a,e){return a.concat(PHC[e.id].list.map(function(x){return new Promise(function(res){var im=new Image();im.onload=function(){x.w=im.naturalWidth;x.h=im.naturalHeight;res()};im.onerror=function(){res()};im.src=x.u})}))},[]));
     if(onStep)onStep(Math.min(need.length,i+4),need.length);
   }
 }
