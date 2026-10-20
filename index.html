@@ -245,7 +245,7 @@ body{margin:0;padding-left:env(safe-area-inset-left,0px);padding-right:env(safe-
 'use strict';
 
 /* ★★★ 部署 Apps Script 後,只需要把下面這一行換成「網頁應用程式網址」(以 /exec 結尾) ★★★ */
-var CFG={GAS_URL:'https://script.google.com/macros/s/AKfycbxCM5GehgbJ8_pV1vXMTYG0lOJvgNGkycsp84SR3sIvx-w3KDr4c6VhYRLbzMQOittw/exec'};
+var CFG={GAS_URL:'請貼上_Apps_Script_網頁應用程式網址'};
 
 var VER='雲端版 v4.0',SKEY='fangan_sess',LKEY='fangan_lastuid',MAIL='takun_hakaw@worldvision.org.tw';
 window.__STANDALONE=true;
@@ -2112,7 +2112,7 @@ function supReport(doc){
       if(String(e.summary||'').trim())h+='<p><b>執行概況</b><br>'+nl(e.summary)+'</p>';
       if(e.phN>0){
         if(!ph)h+='<p class="rem">照片載入中…(共 '+e.phN+' 張)</p>';
-        else if(doc){ph.forEach(function(x){var u=x.su||x.u,w=x.su?x.sw:(x.w?Math.min(x.w,600):0),hh=x.su?x.sh:(w&&x.h?Math.round(x.h*w/x.w):0);h+='<p style="margin:6pt 0"><img src="'+u+'"'+(w?' width="'+w+'"'+(hh?' height="'+hh+'"':''):'')+' alt="'+esc(x.c||'活動照片')+'">'+(x.c?'<br>'+esc(x.c):'')+'</p>'})}
+        else if(doc){var cells=ph.map(function(x){var u=x.su||x.u,sw=x.su?x.sw:(x.w||SUP_DOC_W),sh=x.su?x.sh:(x.h||SUP_DOC_W),dw=Math.min(sw,SUP_DOC_W),dh=Math.round(sh*dw/sw);if(dh>SUP_DOC_H){dw=Math.round(dw*SUP_DOC_H/dh);dh=SUP_DOC_H}return'<td style="width:50%;text-align:center;vertical-align:top;padding:4pt"><img src="'+u+'" width="'+dw+'" height="'+dh+'" alt="'+esc(x.c||'活動照片')+'">'+(x.c?'<br><span style="font-size:9pt">'+esc(x.c)+'</span>':'')+'</td>'});h+='<table style="border-collapse:collapse;width:100%;margin:4pt 0">';for(var q=0;q<cells.length;q+=2)h+='<tr>'+cells[q]+(cells[q+1]||'<td style="width:50%"></td>')+'</tr>';h+='</table>'}
         else h+='<div class="phflow">'+ph.map(function(x,j){return'<figure><img src="'+esc(x.u)+'" alt="'+esc(x.c||'活動照片')+'" data-a="supImg" data-id="'+esc(e.id)+'" data-n="'+j+'" style="cursor:zoom-in;'+(x.w?'width:'+x.w+'px;':'')+'max-width:100%;height:auto">'+(x.c?'<figcaption class="rem">'+esc(x.c)+'</figcaption>':'')+'</figure>'}).join('')+'</div>';
       }
     });
@@ -2120,11 +2120,16 @@ function supReport(doc){
   return h;
 }
 var SUP_DOC_MAX=480,SUP_DOC_Q=.6; /* 月報 Word 檔照片:最長邊像素、JPEG 品質(調小可縮小檔案) */
+var SUP_DOC_W=290,SUP_DOC_H=300; /* 每格顯示寬、高上限(px),一列兩張 */
 function smallImg(im){
   var sc=Math.min(1,SUP_DOC_MAX/Math.max(im.naturalWidth,im.naturalHeight)),cv=document.createElement('canvas');
   cv.width=Math.max(1,Math.round(im.naturalWidth*sc));cv.height=Math.max(1,Math.round(im.naturalHeight*sc));
   cv.getContext('2d').drawImage(im,0,0,cv.width,cv.height);
   return{u:cv.toDataURL('image/jpeg',SUP_DOC_Q),w:cv.width,h:cv.height}}
+function supSmallAll(evs){
+  var jobs=[];
+  evs.forEach(function(e){(phCache(e)||[]).forEach(function(x){if(x.su)return;jobs.push(new Promise(function(res){var im=new Image();im.onload=function(){try{var sm=smallImg(im);x.su=sm.u;x.sw=sm.w;x.sh=sm.h}catch(err){}res()};im.onerror=function(){res()};im.src=x.u}))})});
+  return Promise.all(jobs)}
 async function supFetchPh(evs,onStep){
   var need=evs.filter(function(e){return e.phN>0&&!phCache(e)});
   for(var i=0;i<need.length;i+=4){
@@ -2179,7 +2184,7 @@ Object.assign(A,{
     var evs=supSelEvents();if(!evs.length)return;
     try{
       if(evs.some(function(e){return e.phN>0&&!phCache(e)})){toast('先載入照片,請稍候…');await supFetchPh(evs)}
-      var body=supReport(true),html='<!doctype html><html lang="zh-Hant" xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word"><head><meta charset="utf-8"><meta name="ProgId" content="Word.Document"><title>月度方案活動彙整</title><style>body{font-family:"Microsoft JhengHei","Noto Sans TC",sans-serif;font-size:11pt;color:#161616}table{border-collapse:collapse;width:100%}th,td{border:1px solid #666;padding:4px 6px;vertical-align:top;font-size:10.5pt}th{background:#eee}h1{text-align:center;font-size:16pt}h4{font-size:12pt;margin:14pt 0 4pt}p{margin:2pt 0}.ph td{border:1px solid #666;padding:4pt}img{max-width:100%}</style></head><body>'+body+'</body></html>';
+      await supSmallAll(evs);var body=supReport(true),html='<!doctype html><html lang="zh-Hant" xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word"><head><meta charset="utf-8"><meta name="ProgId" content="Word.Document"><title>月度方案活動彙整</title><style>body{font-family:"Microsoft JhengHei","Noto Sans TC",sans-serif;font-size:11pt;color:#161616}table{border-collapse:collapse;width:100%}th,td{border:1px solid #666;padding:4px 6px;vertical-align:top;font-size:10.5pt}th{background:#eee}h1{text-align:center;font-size:16pt}h4{font-size:12pt;margin:14pt 0 4pt}p{margin:2pt 0}.ph td{border:1px solid #666;padding:4pt}img{max-width:100%}</style></head><body>'+body+'</body></html>';
       await downloads.save({filename:'月度方案活動彙整_'+SV.mon+'.doc',data:htmlToMht(html)});toast('已儲存 Word 檔(.doc),用 Word 開啟,若跳出格式提示請選「是」');sched();
     }catch(e){if(e&&e.code!=='declined')toast('下載失敗:'+String(e&&e.message||e))}
   },
