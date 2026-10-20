@@ -194,6 +194,34 @@ body{margin:0;padding-left:env(safe-area-inset-left,0px);padding-right:env(safe-
  .tabs button{padding:.6rem .8rem;white-space:nowrap}
  table{font-size:.82rem}
 }
+
+/* ===== 督導系統 ===== */
+.hb{display:grid;grid-template-columns:minmax(5rem,10rem) 1fr minmax(6rem,auto);gap:.6rem;align-items:center;font-size:.85rem;margin:.3rem 0}
+.hb .trk{position:relative;height:14px;background:var(--line);border-radius:4px;overflow:hidden;display:block}
+.hb .trk i{position:absolute;left:0;top:0;bottom:0;background:var(--accent);display:block}
+.hb .trk i.b{background:var(--info);opacity:.45}
+.hb.over .trk i:not(.b){background:var(--bad)}
+.hb>span:last-child{text-align:right;font-variant-numeric:tabular-nums}
+.evlist{display:grid;gap:.15rem;max-height:60vh;overflow:auto;border:1px solid var(--line);border-radius:8px;padding:.3rem}
+.evpick{display:grid;grid-template-columns:auto 4.6rem 1fr auto;gap:.6rem;align-items:center;padding:.45rem .5rem;border-radius:6px;cursor:pointer}
+.evpick:hover{background:var(--accent-soft)}
+.evpick input{width:20px;height:20px;margin:0}
+.evpick .d{font-weight:600;font-variant-numeric:tabular-nums}
+.evpick small{display:block;color:var(--muted);font-weight:400;font-size:.78rem}
+.evpick .n b{display:block}
+.evpick .m{text-align:right}
+@media (max-width:700px){
+ .hb{grid-template-columns:5.2rem 1fr}.hb>span:last-child{grid-column:1/-1;text-align:left}
+ .evpick{grid-template-columns:auto 1fr}.evpick .d,.evpick .n,.evpick .m{grid-column:2;text-align:left}
+}
+@media print{
+ body *{visibility:hidden!important}
+ #suprep,#suprep *{visibility:visible!important}
+ #suprep{position:absolute;left:0;top:0;width:100%;border:0!important;box-shadow:none!important;margin:0}
+ #suprep h4{break-after:avoid}
+ #suprep table,#suprep figure{break-inside:avoid}
+ .phgrid{grid-template-columns:repeat(3,1fr)}
+}
 </style>
 
 </head>
@@ -208,7 +236,7 @@ body{margin:0;padding-left:env(safe-area-inset-left,0px);padding-right:env(safe-
 'use strict';
 
 /* ★★★ 部署 Apps Script 後,只需要把下面這一行換成「網頁應用程式網址」(以 /exec 結尾) ★★★ */
-var CFG={GAS_URL:'https://script.google.com/macros/s/AKfycbxCM5GehgbJ8_pV1vXMTYG0lOJvgNGkycsp84SR3sIvx-w3KDr4c6VhYRLbzMQOittw/exec'};
+var CFG={GAS_URL:'請貼上_Apps_Script_網頁應用程式網址'};
 
 var VER='雲端版 v4.0',SKEY='fangan_sess',LKEY='fangan_lastuid',MAIL='takun_hakaw@worldvision.org.tw';
 window.__STANDALONE=true;
@@ -293,6 +321,7 @@ async function sync(){
       if(!r||!r.ok){
         if(r&&r.err==='auth'){setStatus('auth');syncing=false;await reauth();return sync()}
         throw new Error(r&&r.msg||'sync')}
+      if(r.role&&r.role!==session.role){session.role=r.role;try{localStorage.setItem(SKEY,JSON.stringify(session))}catch(x){}}
       batch.forEach(function(c){var i=c.k.indexOf('/'),e=(store[c.k.slice(0,i)]||{})[c.k.slice(i+1)];if(e&&e.p&&e.u===c.u){delete e.p;pend['delete'](c.k);idbPut(c.k,e)}});
       pushed+=batch.length;applyIn(r.changes);rev=r.upTo;metaPut('rev',rev);
       if(pend.size>0||r.more)again=true;
@@ -380,6 +409,15 @@ async function logout(){
 }
 
 /* ---------- 備份檔 / 還原(手動) ---------- */
+var SUP_ROLES=['督導','總督導','區處長'];
+async function teamCall(body){
+  var r=await api(Object.assign({token:session.token},body),150000);
+  if(r&&r.err==='auth'){await reauth();r=await api(Object.assign({token:session.token},body),150000)}
+  if(!r||!r.ok)throw new Error(r&&r.err==='forbidden'?'此帳號沒有督導權限':r&&r.err==='auth'?'登入已逾時,請重新登入':(r&&r.msg)||'無法連線到雲端');
+  return r;
+}
+window.__isSup=function(){return!!session&&SUP_ROLES.indexOf(session.role)>=0};
+window.__team={load:function(){return teamCall({action:'team'})},photos:function(items){return teamCall({action:'photos',items:items})}};
 window.__localdb={uid:function(){return session&&session.uid},
   exportAll:async function(){var docs=[];Object.keys(store).forEach(function(c){Object.keys(store[c]).forEach(function(id){var e=store[c][id];if(!e.d)docs.push([c,id,e.v])})});return{app:'fangan',v:1,uid:session.uid,at:new Date().toISOString(),docs:docs}},
   importAll:async function(o,mine){
@@ -1648,14 +1686,17 @@ function render(){
   mine.sort(sorter);all.sort(sorter);rev.sort(sorter);
   var role=myRole();
   if(!isSup()&&(V.tab==='all'||V.tab==='review'))V.tab='home';
+  if(V.tab==='sup'&&!supOn())V.tab='home';
+  if(V.tab==='sup'&&!TS&&!TM.loading&&!TM.err)supLoad(false);
   if(V.tab==='project'&&!S.projects.get(V.pid)){V.tab='home';V.pid=null}
   var main='';
   if(V.tab==='project')main=projectView(S.projects.get(V.pid));
+  else if(V.tab==='sup')main=supView();
   else if(V.tab==='all')main=homeView(all,'全部方案','督導以上可查看所有同工的方案。',false);
   else if(V.tab==='poa')main=poaView();
   else if(V.tab==='review')main=homeView(rev,'待我審核','輪到你的角色('+role+')核示的方案。',false);
   else main=homeView(mine,'我的方案','你主責的所有方案,可用餘額與近期活動一目了然。',true);
-  var nav=[['home','我的方案']].concat(isSup()?[['all','全部方案']]:[]).concat([['poa','年度 POA']]);
+  var nav=[['home','我的方案']].concat(supOn()?[['sup','督導系統']]:[]).concat([['poa','年度 POA']]);
   var cur=V.tab==='project'?(V.from||'home'):V.tab;
   app.innerHTML='<div class="top"><div class="wrap"><span class="brand">方案成果管理系統</span><nav class="nav" aria-label="主選單">'+nav.map(function(n){return'<button data-a="nav" data-v="'+n[0]+'"'+(cur===n[0]?' aria-current="true"':'')+'>'+n[1]+'</button>'}).join('')+'</nav><div class="who"><button class="btn sm" data-a="profile" title="修改顯示姓名與身分">'+esc(myName()||'設定姓名')+' ✎</button>'+window.__cloudButtons()+'<label for="rolesel" class="ro">身分</label><select id="rolesel" data-change="role">'+ROLES.map(function(r){return'<option'+(r===role?' selected':'')+'>'+r+'</option>'}).join('')+'</select></div></div></div>'
    +'<main class="wrap">'+(canWrite?'':'<div class="note warn" style="margin-top:1rem">你目前是唯讀身分,可以瀏覽但不能修改資料。請向方案擁有者要求「協作者」權限。</div>')+main+'</main>';
@@ -1664,7 +1705,7 @@ function render(){
 
 /* ---------- actions ---------- */
 var A={
- nav:function(d){V.tab=d.v;V.pid=null;V.from=null;sched()},
+ nav:function(d){V.tab=d.v;V.pid=null;V.from=null;if(d.v==='sup'&&TS)supLoad(false);sched()},
  open:function(d){V.from=V.tab;V.tab='project';V.pid=d.id;V.ptab='plan';sched();window.scrollTo(0,0)},
  ptab:function(d){V.ptab=d.v;sched()},
  profile:function(){var cur=S.staff.get(uid)||{};openForm('profile',null,{id:uid,name:myName(),role:cur.role||'社工'})},
@@ -1799,6 +1840,328 @@ document.addEventListener('change',async function(e){
   }
 });
 document.addEventListener('keydown',function(e){if(e.key==='Escape'&&modalOpen&&!document.getElementById('af')){if(modalDirty&&!window.confirm('已填寫的內容尚未儲存,確定要關閉嗎?'))return;closeModal()}});
+
+/* ---------- 督導系統(唯讀整合全中心資料) ---------- */
+var TS=null,TM={loading:false,err:'',at:null,users:{}},PHC={};
+var SV={sub:'dash',fy:'',center:'',owner:'',st:'',warn:false,mon:'',mp:'',mo:'',ms:'',mq:'',mph:false,sel:{},rep:false,phRun:false,phDone:0,phTot:0,phErr:''};
+function supOn(){return!!(window.__isSup&&window.__isSup())}
+function withTeam(fn){var sv=S;S=TS;try{return fn()}finally{S=sv}}
+function supOwner(p){var u=TM.users[p.owner];if(u&&u.name)return u.name;var s=TS&&TS.staff.get(p.owner);return(s&&s.name)||'(未知同工)'}
+function hm(t){var d=new Date(t);return String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0')}
+async function supLoad(force){
+  if(TM.loading)return;
+  if(!force&&TS&&TM.at&&Date.now()-TM.at<120000)return;
+  TM.loading=true;TM.err='';sched();
+  try{
+    var r=await window.__team.load(),ns={};
+    COLS.forEach(function(c){ns[c]=new Map()});
+    r.docs.forEach(function(x){var m=ns[x[0]];if(m)m.set(x[1],Object.assign({id:x[1],_src:x[3]},x[2]))});
+    TS=ns;TM.users={};r.users.forEach(function(u){TM.users[u.id]=u});TM.at=Date.now();
+  }catch(e){TM.err=String(e&&e.message||e)}
+  TM.loading=false;sched();
+}
+
+/* ----- 共用計算 ----- */
+function supProjects(){
+  var out=[];
+  TS.projects.forEach(function(p){
+    if(SV.fy&&(p.fy||'FY26')!==SV.fy)return;
+    if(SV.center&&(p.center||'')!==SV.center)return;
+    if(SV.owner&&p.owner!==SV.owner)return;
+    if(SV.st&&pst(p)!==SV.st)return;
+    out.push(p)});
+  return out.sort(function(a,b){var x=supOwner(a),y=supOwner(b);return x>y?1:x<y?-1:((a.code||'')>(b.code||'')?1:-1)});
+}
+function supFlags(p,c){
+  var f=[],td=today(),late=0,nos=0,nop=0;
+  if(c.total>0&&c.spent>c.total)f.push('核銷超過預算');
+  if(c.overdue.length)f.push('保留款逾期 '+c.overdue.length+' 筆');
+  if(c.poaOver)f.push('預算超出 POA');
+  c.EV.forEach(function(e){var st=evSt(e);
+    if(st==='未辦理'&&(e.endDate||e.date||'9')<td)late++;
+    if(st==='已辦理'&&!String(e.summary||'').trim())nos++;
+    if(st==='已辦理'&&!(e.phN>0))nop++});
+  if(late)f.push('過期未標記辦理 '+late+' 場');
+  if(nos)f.push('已辦理缺執行概況 '+nos+' 場');
+  if(nop)f.push('已辦理無照片 '+nop+' 場');
+  return f;
+}
+function supEvCount(c){var done=0,all=0;c.EV.forEach(function(e){var s=evSt(e);if(s!=='取消')all++;if(s==='已辦理')done++});return{done:done,all:all}}
+function supRows(list){
+  return list.map(function(p){var c=calc(p.id);return{p:p,c:c,f:supFlags(p,c),e:supEvCount(c)}})
+}
+function supTotals(rows){
+  var t={n:rows.length,total:0,spent:0,held:0,done:0,ev:0,expT:0,actT:0};
+  rows.forEach(function(r){t.total+=r.c.total;t.spent+=r.c.spent;t.held+=r.c.held;t.done+=r.e.done;t.ev+=r.e.all;t.expT+=r.c.expTimes;t.actT+=r.c.actTimes});
+  return t;
+}
+function supStrip(t){
+  return'<div class="strip"><div><small>方案數</small><b>'+t.n+'</b></div><div><small>預算總額</small><b>$'+money(t.total)+'</b></div><div><small>已核銷</small><b>$'+money(t.spent)+'</b></div><div><small>預算執行率</small><b>'+pct(t.spent,t.total)+'%</b></div>'
+   +(t.held?'<div><small>保留中(延展)</small><b style="color:var(--warn)">$'+money(t.held)+'</b></div>':'')
+   +'<div><small>場次進度</small><b>'+t.done+' / '+t.ev+'</b></div><div><small>人次達成率</small><b>'+pct(t.actT,t.expT)+'%</b></div></div>';
+}
+function meterHtml(rate){return'<span class="meter'+(rate>100?' over':rate>=90?' hi':'')+'" style="min-width:4.5rem;display:inline-block;vertical-align:middle"><i style="width:'+Math.min(100,rate)+'%"></i></span> '+rate+'%'}
+function supMonthsOfEvents(){var m={};TS.events.forEach(function(e){if(e.date)m[e.date.slice(0,7)]=(m[e.date.slice(0,7)]||0)+1});return m}
+function supAtt(){var m={};TS.attendances.forEach(function(a){var x=m[a.eventId]=m[a.eventId]||{times:0,ppl:{}};x.times+=Number(a.times)||0;(a.roster||[]).forEach(function(cd){x.ppl[a.kind+'|'+cd]=1})});return m}
+function evCmp(a,b){var pa=TS.projects.get(a.projectId)||{},pb=TS.projects.get(b.projectId)||{};
+  return(a.date||'')>(b.date||'')?1:(a.date||'')<(b.date||'')?-1:(a.start||'')>(b.start||'')?1:(a.start||'')<(b.start||'')?-1:((pa.code||'')>(pb.code||'')?1:-1)}
+
+/* ----- 外框 ----- */
+function supView(){
+  var h='<div class="phead"><div><h1>督導系統</h1><div class="sub" style="margin:0">整合全中心社工的方案資料,唯讀查看。'+(TM.at?'資料更新於 '+hm(TM.at)+'。':'')+'</div></div><div class="actions nosp"><button class="btn sm" data-a="supRefresh"'+(TM.loading?' disabled':'')+'>'+(TM.loading?'載入中…':'↻ 重新整理資料')+'</button></div></div>';
+  if(!TS){
+    return h+(TM.err?'<div class="note bad">'+esc(TM.err)+'</div><button class="btn" data-a="supRefresh">再試一次</button>':'<div class="note info" role="status">正在從 Google 雲端整合所有社工的資料,人數與照片多時可能需要十幾秒…</div>');
+  }
+  if(TM.err)h+='<div class="note bad">'+esc(TM.err)+'(目前顯示的是上一次載入的資料)</div>';
+  var tabs=[['dash','中心總覽'],['ana','數據分析'],['mon','月度場次與照片']];
+  h+='<div class="tabs nosp" role="tablist">'+tabs.map(function(t){return'<button role="tab" data-a="supsub" data-v="'+t[0]+'" aria-selected="'+(SV.sub===t[0])+'">'+t[1]+'</button>'}).join('')+'</div>';
+  return h+withTeam(function(){return SV.sub==='ana'?supAna():SV.sub==='mon'?supMon():supDash()});
+}
+function supFilterBar(){
+  var fy={},ce={},ow={};TS.projects.forEach(function(p){fy[p.fy||'FY26']=1;ce[p.center||'']=1;ow[p.owner]=1});
+  var o=function(arr,cur,all){return'<option value="">'+all+'</option>'+arr.map(function(v){return'<option value="'+esc(v[0])+'"'+(cur===v[0]?' selected':'')+'>'+esc(v[1])+'</option>'}).join('')};
+  var owners=Object.keys(ow).map(function(id){return[id,(TM.users[id]&&TM.users[id].name)||'(未知同工)']}).sort(function(a,b){return a[1]>b[1]?1:-1});
+  var cs=Object.keys(ce).filter(Boolean).sort();
+  var fl=function(l,k,html){return'<label style="display:grid;gap:.15rem;font-size:.8rem;color:var(--muted)">'+l+'<select data-sc="'+k+'">'+html+'</select></label>'};
+  return'<div class="bar nosp" style="align-items:flex-end;margin:.2rem 0 1rem">'+fl('年度','fy',o(Object.keys(fy).sort().reverse().map(function(x){return[x,x]}),SV.fy,'全部年度'))
+   +(cs.length>1?fl('中心','center',o(cs.map(function(x){return[x,x]}),SV.center,'全部中心')):'')
+   +fl('社工','owner',o(owners,SV.owner,'全部社工'))+fl('狀態','st',o(['執行中','結案待報告','已結案'].map(function(x){return[x,x]}),SV.st,'全部狀態'))
+   +'<label style="display:flex;gap:.35rem;align-items:center;font-size:.88rem;padding-bottom:.45rem"><input type="checkbox" data-sc="warn"'+(SV.warn?' checked':'')+'> 只看有警示的方案</label></div>';
+}
+
+/* ----- 1. 中心總覽 ----- */
+function supDash(){
+  var rows=supRows(supProjects()),tot=supTotals(rows),shown=SV.warn?rows.filter(function(r){return r.f.length}):rows;
+  var wf=rows.filter(function(r){return r.f.length}).length,empty=Object.keys(TM.users).map(function(k){return TM.users[k]}).filter(function(u){return!u.n}).map(function(u){return u.name});
+  var h=supFilterBar()+supStrip(tot);
+  if(wf)h+='<div class="note warn" role="status">有 <b>'+wf+'</b> 個方案需要關注(預算、保留款、場次或紀錄不完整),表格最右欄有說明;勾選上方「只看有警示的方案」可只看這些。</div>';
+  else if(rows.length)h+='<div class="note ok">目前沒有需要關注的方案。</div>';
+  if(empty.length)h+='<div class="note info">尚未有任何資料的帳號:'+esc(empty.join('、'))+'(可能還沒登入使用,或尚未同步)。</div>';
+  if(!shown.length)return h+'<div class="empty"><b>沒有符合條件的方案</b>請調整上方篩選條件。</div>';
+  h+='<div class="tw"><table><thead><tr><th>社工</th><th>方案</th><th>月份</th><th>狀態</th><th class="n">預算</th><th class="n">已核銷</th><th>執行率</th><th class="n">場次</th><th class="n">人次達成</th><th>下次活動</th><th>警示</th></tr></thead><tbody>'
+   +shown.map(function(r){var p=r.p,c=r.c;
+     return'<tr><td style="white-space:nowrap">'+esc(supOwner(p))+'</td><td><button style="border:0;background:none;color:var(--accent);text-align:left;padding:0;font:inherit;cursor:pointer;text-decoration:underline" data-a="supProj" data-id="'+esc(p.id)+'">'+esc(p.name||'(未命名)')+'</button><div class="rem">'+esc(p.code||'')+(p.center?' ・ '+esc(p.center):'')+' ・ '+esc(p.fy||'FY26')+'</div></td><td style="white-space:nowrap">'+esc(p.month||'')+'</td><td><span class="pill '+pillCls(pst(p))+'">'+esc(pst(p))+'</span></td>'
+      +'<td class="n">$'+money(c.total)+'</td><td class="n">$'+money(c.spent)+'</td><td>'+meterHtml(c.rate)+'</td><td class="n">'+r.e.done+' / '+r.e.all+'</td><td class="n">'+(c.expTimes?c.timeRate+'%':'—')+'</td><td>'+(c.next?esc(c.next.date.slice(5))+' '+esc(c.next.name):'—')+'</td>'
+      +'<td>'+(r.f.length?r.f.map(function(x){return'<span class="flag warn" style="display:inline-block;margin:0 .2rem .2rem 0">'+esc(x)+'</span>'}).join(''):'<span class="rem">—</span>')+'</td></tr>'}).join('')
+   +'</tbody></table></div>';
+  return h;
+}
+function supProjOpen(id){
+  var html=withTeam(function(){
+    var p=S.projects.get(id);if(!p)return'';
+    var c=calc(id),f=supFlags(p,c),e=supEvCount(c),evs=c.EV.slice().sort(evCmp),att=supAtt();
+    var B=by(c.B,'month'),cats=catList(c.B);
+    var h='<div class="ov"><div class="modal wide" role="dialog" aria-modal="true" aria-labelledby="mt"><header id="mt">'+esc(p.name||'')+'</header><div style="padding:1rem 1.1rem;display:grid;gap:.9rem">'
+     +'<div class="sub" style="margin:0">'+esc(p.center||'')+' ・ '+esc(p.fy||'FY26')+' '+esc(p.month||'')+' ・ 編碼 '+esc(p.code||'')+' ・ 主責 '+esc(supOwner(p))+' ・ '+esc(pst(p))+'</div>'
+     +supStrip({n:1,total:c.total,spent:c.spent,held:c.held,done:e.done,ev:e.all,expT:c.expTimes,actT:c.actTimes})
+     +(f.length?'<div class="note warn" style="margin:0">'+f.map(esc).join('、')+'</div>':'')
+     +'<h3 style="margin:.2rem 0">活動場次('+evs.length+')</h3>'
+     +(evs.length?'<div class="tw"><table><thead><tr><th>日期</th><th>活動</th><th>狀態</th><th class="n">出席人次</th><th>執行概況</th><th>照片</th></tr></thead><tbody>'+evs.map(function(v){var a=att[v.id];
+        return'<tr><td>'+esc(evDate(v))+'</td><td>'+esc(v.name||'')+'</td><td>'+esc(evSt(v))+'</td><td class="n">'+(a?a.times:'—')+'</td><td>'+(String(v.summary||'').trim()?'有':'<span class="rem">未填</span>')+'</td><td>'+(v.phN>0?'<button class="btn sm" data-a="supGallery" data-id="'+esc(v.id)+'">看照片('+v.phN+')</button>':'<span class="rem">無</span>')+'</td></tr>'}).join('')+'</tbody></table></div>':'<div class="rem">尚未建立場次</div>')
+     +'<h3 style="margin:.2rem 0">預算(依經費類別)</h3>'
+     +(cats.length?'<div class="tw"><table><thead><tr><th>類別</th><th class="n">預算</th><th class="n">已核銷</th><th class="n">保留</th><th class="n">餘額</th></tr></thead><tbody>'+cats.map(function(k){var bs=c.B.filter(function(b){return catOf(b)===k}),t=0,s=0,hd=0;bs.forEach(function(b){var x=budgetCalc(b);t+=Number(b.total)||0;s+=x.spent;hd+=x.held});
+        return'<tr><td>'+esc(k)+'</td><td class="n">$'+money(t)+'</td><td class="n">$'+money(s)+'</td><td class="n">$'+money(hd)+'</td><td class="n">$'+money(t-s-hd)+'</td></tr>'}).join('')+'</tbody></table></div>':'<div class="rem">尚未建立預算</div>')
+     +'</div><div class="foot"><button class="btn pri" data-a="mclose">關閉</button></div></div></div>';
+    return h;
+  });
+  if(!html)return;
+  document.getElementById('layer').innerHTML=html;modalOpen=true;modalDirty=false;
+}
+
+/* ----- 2. 數據分析 ----- */
+function hbar(label,a,b,max,txt){
+  var wa=max>0?a/max*100:0,wb=max>0?b/max*100:0;
+  return'<div class="hb'+(a>0&&b>a?' over':'')+'"><span>'+esc(label)+'</span><span class="trk" role="img" aria-label="'+esc(label+':'+txt)+'"><i class="b" style="width:'+wa.toFixed(1)+'%"></i><i style="width:'+wb.toFixed(1)+'%"></i></span><span>'+esc(txt)+'</span></div>';
+}
+function catRank(c){var i=CATS.indexOf(c);return c==='未分類'||c==='未列入預算'?999:i>=0?i:500}
+function supAnaData(){
+  var list=supProjects(),ids={};list.forEach(function(p){ids[p.id]=p});
+  var bm={},sm={},bc={},sc={};MONTHS.forEach(function(m){bm[m]=0;sm[m]=0});
+  TS.budgets.forEach(function(b){if(!ids[b.projectId])return;var t=Number(b.total)||0;if(bm[b.month]!=null)bm[b.month]+=t;var k=catOf(b);bc[k]=(bc[k]||0)+t});
+  list.forEach(function(p){var m=spentByMonth(p.id);Object.keys(m).forEach(function(k){if(sm[k]!=null)sm[k]+=m[k]})});
+  TS.expenditures.forEach(function(e){if(!ids[e.projectId])return;var b=TS.budgets.get(e.budgetId),k=b?catOf(b):'未列入預算';sc[k]=(sc[k]||0)+(Number(e.amount)||0)});
+  var ev={};TS.events.forEach(function(e){if(!ids[e.projectId]||!e.date)return;var k=e.date.slice(0,7),x=ev[k]=ev[k]||{done:0,wait:0,cancel:0};var s=evSt(e);if(s==='已辦理')x.done++;else if(s==='取消')x.cancel++;else x.wait++});
+  var ek={},ak={};KINDS.forEach(function(k){ek[k]=0;ak[k]=0});
+  TS.audiences.forEach(function(a){if(ids[a.projectId]&&ek[a.kind]!=null)ek[a.kind]+=Number(a.expTimes)||0});
+  TS.attendances.forEach(function(a){if(ids[a.projectId]&&ak[a.kind]!=null)ak[a.kind]+=Number(a.times)||0});
+  return{list:list,rows:supRows(list),bm:bm,sm:sm,bc:bc,sc:sc,ev:ev,ek:ek,ak:ak};
+}
+function supAna(){
+  var D=supAnaData(),tot=supTotals(D.rows);
+  var h=supFilterBar()+supStrip(tot)+'<div class="bar nosp" style="margin-bottom:1rem"><button class="btn" data-a="supXlsx">⬇ 匯出 Excel(方案進度、社工彙總、場次清單)</button></div>';
+  if(!D.list.length)return h+'<div class="empty"><b>沒有符合條件的方案</b>請調整上方篩選條件。</div>';
+  var lg='<div class="rem" style="margin-bottom:.4rem">淺色為預算,深色為已核銷(超出預算時變紅色)。</div>';
+  var mx=0;MONTHS.forEach(function(m){mx=Math.max(mx,D.bm[m],D.sm[m])});
+  h+='<section class="sec"><header>每月預算與核銷(依預算月份)</header><div class="body">'+lg+MONTHS.map(function(m){return hbar(m,D.bm[m],D.sm[m],mx,'$'+money(D.sm[m])+' / $'+money(D.bm[m]))}).join('')+'</div></section>';
+  var cats=Object.keys(D.bc).concat(Object.keys(D.sc).filter(function(k){return D.bc[k]==null})).sort(function(a,b){return catRank(a)-catRank(b)||(a>b?1:-1)});
+  mx=0;cats.forEach(function(k){mx=Math.max(mx,D.bc[k]||0,D.sc[k]||0)});
+  h+='<section class="sec"><header>各經費類別的預算與核銷</header><div class="body">'+lg+cats.map(function(k){var a=D.bc[k]||0,b=D.sc[k]||0;return hbar(k,a,b,mx,'$'+money(b)+' / $'+money(a)+(a?'('+pct(b,a)+'%)':''))}).join('')+'</div></section>';
+  var yms=Object.keys(D.ev).sort(),emx=0;yms.forEach(function(k){var x=D.ev[k];emx=Math.max(emx,x.done+x.wait+x.cancel)});
+  h+='<section class="sec"><header>每月活動場次(依活動日期)</header><div class="body"><div class="rem" style="margin-bottom:.4rem"><span style="color:var(--ok)">■</span> 已辦理　<span style="color:var(--info)">■</span> 未辦理　<span style="color:var(--muted)">■</span> 取消</div>'
+   +(yms.length?yms.map(function(k){var x=D.ev[k],t=x.done+x.wait+x.cancel,w=function(n){return(emx?n/emx*100:0).toFixed(1)+'%'};
+     return'<div class="hb"><span>'+k.replace('-','/')+'</span><span class="trk" role="img" aria-label="'+k+' 已辦理'+x.done+' 未辦理'+x.wait+' 取消'+x.cancel+'" style="display:flex"><i style="position:static;width:'+w(x.done)+';background:var(--ok)"></i><i style="position:static;width:'+w(x.wait)+';background:var(--info)"></i><i style="position:static;width:'+w(x.cancel)+';background:var(--muted)"></i></span><span>'+x.done+' / '+t+' 場</span></div>'}).join(''):'<div class="rem">尚無場次</div>')+'</div></section>';
+  mx=0;KINDS.forEach(function(k){mx=Math.max(mx,D.ek[k],D.ak[k])});
+  h+='<section class="sec"><header>各對象參與人次(預期 vs 實際)</header><div class="body"><div class="rem" style="margin-bottom:.4rem">淺色為預期人次,深色為實際出席人次。</div>'
+   +KINDS.filter(function(k){return D.ek[k]||D.ak[k]}).map(function(k){return hbar(k,D.ek[k],D.ak[k],mx,D.ak[k]+' / '+D.ek[k]+(D.ek[k]?'('+pct(D.ak[k],D.ek[k])+'%)':''))}).join('')+'</div></section>';
+  var by_={};D.rows.forEach(function(r){var k=r.p.owner,x=by_[k]=by_[k]||{rows:[]};x.rows.push(r)});
+  var oh=Object.keys(by_).map(function(k){var t=supTotals(by_[k].rows),u=TM.users[k]||{};return{k:k,name:u.name||'(未知同工)',t:t,at:u.at,warn:by_[k].rows.filter(function(r){return r.f.length}).length}}).sort(function(a,b){return a.name>b.name?1:-1});
+  h+='<section class="sec"><header>社工彙總</header><div class="body flush"><div class="tw"><table><thead><tr><th>社工</th><th class="n">方案</th><th class="n">預算</th><th class="n">已核銷</th><th>執行率</th><th class="n">場次</th><th class="n">人次達成</th><th class="n">警示方案</th><th>最後同步</th></tr></thead><tbody>'
+   +oh.map(function(o){return'<tr><td>'+esc(o.name)+'</td><td class="n">'+o.t.n+'</td><td class="n">$'+money(o.t.total)+'</td><td class="n">$'+money(o.t.spent)+'</td><td>'+meterHtml(pct(o.t.spent,o.t.total))+'</td><td class="n">'+o.t.done+' / '+o.t.ev+'</td><td class="n">'+(o.t.expT?pct(o.t.actT,o.t.expT)+'%':'—')+'</td><td class="n">'+(o.warn||'—')+'</td><td>'+(o.at?new Date(o.at).toLocaleString('zh-TW',{hour12:false}):'—')+'</td></tr>'}).join('')
+   +'</tbody></table></div></div></section>';
+  return h;
+}
+async function supXlsx(){
+  var D=withTeam(supAnaData),att=withTeam(supAtt),sheets;
+  var r1=[['社工','中心','事工編碼','方案名稱','年度','月份','狀態','預算總額','已核銷','執行率%','保留中','可用餘額','已辦理場次','全部場次','預期人次','實際人次','人次達成率%','警示']];
+  D.rows.forEach(function(r){var p=r.p,c=r.c;r1.push([supOwner(p),p.center||'',p.code||'',p.name||'',p.fy||'FY26',p.month||'',pst(p),c.total,c.spent,c.rate,c.held,c.avail,r.e.done,r.e.all,c.expTimes,c.actTimes,c.timeRate,r.f.join('、')])});
+  var by_={};D.rows.forEach(function(r){(by_[r.p.owner]=by_[r.p.owner]||[]).push(r)});
+  var r2=[['社工','方案數','預算總額','已核銷','執行率%','已辦理場次','全部場次','預期人次','實際人次','人次達成率%','警示方案數']];
+  Object.keys(by_).forEach(function(k){var t=supTotals(by_[k]);r2.push([(TM.users[k]&&TM.users[k].name)||'(未知同工)',t.n,t.total,t.spent,pct(t.spent,t.total),t.done,t.ev,t.expT,t.actT,pct(t.actT,t.expT),by_[k].filter(function(r){return r.f.length}).length])});
+  var r3=[['日期','社工','中心','方案','活動名稱','狀態','地點','出席人次','照片數','有執行概況']],ids={};D.list.forEach(function(p){ids[p.id]=p});
+  var evs=[];TS.events.forEach(function(e){if(ids[e.projectId])evs.push(e)});evs.sort(function(a,b){return withTeam(function(){return evCmp(a,b)})});
+  evs.forEach(function(e){var p=TS.projects.get(e.projectId)||{},a=att[e.id];r3.push([evDate(e),supOwner(p),p.center||'',p.name||'',e.name||'',evSt(e),e.place||p.place||'',a?a.times:0,e.phN||0,String(e.summary||'').trim()?'是':'否'])});
+  sheets=[{name:'方案進度',widths:[10,12,12,26,7,7,10,11,11,9,11,11,10,10,10,10,11,40],rows:r1},{name:'社工彙總',widths:[12,8,12,12,9,10,10,10,10,11,11],rows:r2},{name:'場次清單',widths:[22,10,12,24,28,8,16,10,8,10],rows:r3}];
+  try{await downloads.save({filename:'督導彙整_'+today().replace(/-/g,'')+'.xlsx',data:xlsxBuild(sheets)});toast('已儲存 Excel')}catch(e){if(e&&e.code!=='declined')toast('下載失敗')}
+}
+
+/* ----- 3. 月度場次與照片 ----- */
+function supMonList(){
+  var out=[],q=SV.mq.trim().toLowerCase();
+  TS.events.forEach(function(e){
+    if(!e.date||e.date.slice(0,7)!==SV.mon)return;
+    var p=TS.projects.get(e.projectId);if(!p)return;
+    if(SV.mp&&e.projectId!==SV.mp)return;
+    if(SV.mo&&p.owner!==SV.mo)return;
+    if(SV.ms&&evSt(e)!==SV.ms)return;
+    if(SV.mph&&!(e.phN>0))return;
+    if(q&&(String(e.name||'')+' '+String(e.place||'')+' '+String(p.name||'')).toLowerCase().indexOf(q)<0)return;
+    out.push(e)});
+  return out.sort(evCmp);
+}
+function supSelEvents(){var r=[];Object.keys(SV.sel).forEach(function(id){if(!SV.sel[id])return;var e=TS.events.get(id);if(e&&e.date&&e.date.slice(0,7)===SV.mon)r.push(e)});return r.sort(evCmp)}
+function supMon(){
+  var ms=supMonthsOfEvents(),keys=Object.keys(ms).sort().reverse();
+  if(!keys.length)return'<div class="empty"><b>目前還沒有任何活動場次</b>社工建立場次後,這裡就能按月份整理。</div>';
+  if(!SV.mon||!ms[SV.mon]){var cur=today().slice(0,7);SV.mon=ms[cur]?cur:(keys.filter(function(k){return k<=cur})[0]||keys[0]);SV.sel={}}
+  var list=supMonList(),sel=supSelEvents(),att=supAtt();
+  var pj={},ow={};TS.events.forEach(function(e){if(e.date&&e.date.slice(0,7)===SV.mon){var p=TS.projects.get(e.projectId);if(p){pj[p.id]=p;ow[p.owner]=1}}});
+  var o=function(arr,cur,all){return'<option value="">'+all+'</option>'+arr.map(function(v){return'<option value="'+esc(v[0])+'"'+(cur===v[0]?' selected':'')+'>'+esc(v[1])+'</option>'}).join('')};
+  var fl=function(l,k,html){return'<label style="display:grid;gap:.15rem;font-size:.8rem;color:var(--muted)">'+l+'<select data-sc="'+k+'">'+html+'</select></label>'};
+  var h='<div class="bar nosp" style="align-items:flex-end;margin:.2rem 0 .6rem">'
+   +fl('月份','mon',keys.map(function(k){return'<option value="'+k+'"'+(SV.mon===k?' selected':'')+'>'+k.slice(0,4)+' 年 '+Number(k.slice(5))+' 月('+ms[k]+' 場)</option>'}).join(''))
+   +fl('方案','mp',o(Object.keys(pj).map(function(id){return[id,(pj[id].code?pj[id].code+' ':'')+(pj[id].name||'')]}).sort(function(a,b){return a[1]>b[1]?1:-1}),SV.mp,'全部方案'))
+   +fl('社工','mo',o(Object.keys(ow).map(function(id){return[id,(TM.users[id]&&TM.users[id].name)||'(未知同工)']}).sort(function(a,b){return a[1]>b[1]?1:-1}),SV.mo,'全部社工'))
+   +fl('狀態','ms',o(['已辦理','未辦理','取消'].map(function(x){return[x,x]}),SV.ms,'全部狀態'))
+   +'<label style="display:grid;gap:.15rem;font-size:.8rem;color:var(--muted)">搜尋活動名稱/地點<input type="text" data-sq placeholder="輸入關鍵字" value="'+esc(SV.mq)+'" style="padding:.45rem .6rem;border:1px solid var(--line);border-radius:6px;background:var(--field);color:var(--fg)"></label>'
+   +'<label style="display:flex;gap:.35rem;align-items:center;font-size:.88rem;padding-bottom:.45rem"><input type="checkbox" data-sc="mph"'+(SV.mph?' checked':'')+'> 只顯示有照片的</label></div>';
+  h+='<section class="sec nosp"><header>選擇要放進月報的場次 <span class="rem" id="selcnt" role="status" style="margin-left:.5rem">已選 '+sel.length+' 場(目前清單 '+list.length+' 場)</span></header><div class="body">'
+   +'<div class="actions" style="margin-bottom:.6rem"><button class="btn sm" data-a="supSelAll">全選目前清單</button><button class="btn sm" data-a="supSelDone">只選已辦理</button><button class="btn sm" data-a="supSelPh">只選有照片</button><button class="btn sm" data-a="supSelNone">全部取消</button><button class="btn pri" data-a="supRep"'+(sel.length?'':' disabled')+' id="repbtn">產生月報('+sel.length+' 場)</button></div>'
+   +(list.length?'<div class="evlist">'+list.map(function(e){var p=TS.projects.get(e.projectId)||{},a=att[e.id],st=evSt(e);
+      return'<label class="evpick"><input type="checkbox" data-pick value="'+esc(e.id)+'"'+(SV.sel[e.id]?' checked':'')+'><span class="d">'+esc(e.date.slice(5))+(e.endDate&&e.endDate>e.date?'~'+esc(e.endDate.slice(5)):'')+'<small>'+esc(e.start||'')+'</small></span><span class="n"><b>'+esc(e.name||'(未命名)')+'</b><small>'+esc(p.name||'')+' ・ '+esc(supOwner(p))+(e.place?' ・ '+esc(e.place):'')+'</small></span><span class="m"><span class="pill '+(st==='已辦理'?'run':st==='取消'?'draft':'wait')+'">'+st+'</span><small>'+(a?a.times+' 人次':'')+' '+(e.phN>0?'📷'+e.phN:'')+' '+(String(e.summary||'').trim()?'':'<span style="color:var(--warn)">缺概況</span>')+'</small></span></label>'}).join('')+'</div>':'<div class="empty" style="margin:0"><b>這個條件下沒有場次</b>請調整篩選條件。</div>')
+   +'</div></section>';
+  if(SV.rep&&sel.length){
+    h+='<div class="actions nosp" style="margin:.8rem 0"><button class="btn pri" data-a="supPrint">🖨 列印 / 存成 PDF</button><button class="btn" data-a="supDoc">⬇ 下載 Word 檔(.doc)</button><button class="btn" data-a="supRepHide">收起月報</button>'
+     +(SV.phRun?'<span class="rem" role="status">照片載入中 '+SV.phDone+' / '+SV.phTot+' 場…</span>':SV.phErr?'<span class="rem" style="color:var(--bad)">'+esc(SV.phErr)+' <button class="btn sm" data-a="supRep">重試</button></span>':'')+'</div>'
+     +'<div class="paper" id="suprep">'+supReport(false)+'</div>';
+  }
+  return h;
+}
+function phCache(e){var c=PHC[e.id];return c&&c.n===e.phN?c.list:null}
+function supReport(doc){
+  var evs=supSelEvents(),att=supAtt(),y=SV.mon.slice(0,4),m=Number(SV.mon.slice(5)),cen={},pjs={},times=0,pcs=0;
+  evs.forEach(function(e){var p=TS.projects.get(e.projectId)||{};if(p.center)cen[p.center]=1;pjs[e.projectId]=1;var a=att[e.id];if(a)times+=a.times;pcs+=e.phN||0});
+  var h='<p style="text-align:center">台灣世界展望會'+esc(Object.keys(cen).join('、'))+'</p><h1>'+y+' 年 '+m+' 月 方案活動場次與照片彙整</h1>'
+   +'<p>製表日期:'+today()+'　共 '+evs.length+' 場、'+Object.keys(pjs).length+' 個方案、出席 '+times+' 人次、照片 '+pcs+' 張</p>'
+   +(doc?'':'<div style="overflow-x:auto">')+'<table><thead><tr><th>#</th><th>日期</th><th>活動名稱</th><th>方案</th><th>社工</th><th>狀態</th><th>出席人次</th></tr></thead><tbody>'
+   +evs.map(function(e,i){var p=TS.projects.get(e.projectId)||{},a=att[e.id];return'<tr><td>'+(i+1)+'</td><td>'+esc(evDate(e))+'</td><td>'+esc(e.name||'')+'</td><td>'+esc(p.name||'')+'</td><td>'+esc(supOwner(p))+'</td><td>'+esc(evSt(e))+'</td><td>'+(a?a.times:'—')+'</td></tr>'}).join('')+'</tbody></table>'+(doc?'':'</div>');
+  evs.forEach(function(e,i){
+    var p=TS.projects.get(e.projectId)||{},a=att[e.id],ph=phCache(e);
+    h+='<h4>'+(i+1)+'. '+esc(evDate(e))+(e.start?' '+esc(e.start)+(e.end?'–'+esc(e.end):''):'')+'　'+esc(e.name||'')+'</h4>'
+     +'<table><tbody><tr><th style="width:18%">方案</th><td>'+esc((p.code?p.code+' ':'')+(p.name||''))+'</td><th style="width:14%">主責社工</th><td>'+esc(supOwner(p))+'</td></tr>'
+     +'<tr><th>地點</th><td>'+esc(e.place||p.place||'')+'</td><th>負責人員</th><td>'+esc(e.owner||'')+'</td></tr>'
+     +'<tr><th>狀態</th><td>'+esc(evSt(e))+'</td><th>出席</th><td>'+(a?a.times+' 人次(約 '+Object.keys(a.ppl).length+' 人)':'尚無出席紀錄')+(e.plannedPeople?'；預計 '+esc(e.plannedPeople)+' 人':'')+'</td></tr></tbody></table>'
+     +(String(e.content||'').trim()?'<p><b>活動內容</b><br>'+nl(e.content)+'</p>':'')
+     +'<p><b>執行概況</b><br>'+(String(e.summary||'').trim()?nl(e.summary):'<span style="color:#8a5a00">(社工尚未填寫)</span>')+'</p>';
+    if(e.phN>0){
+      if(!ph)h+='<p class="rem">照片載入中…(共 '+e.phN+' 張)</p>';
+      else if(doc){h+='<table class="ph"><tbody>';for(var j=0;j<ph.length;j+=2){h+='<tr>'+[ph[j],ph[j+1]].map(function(x){return'<td style="width:50%">'+(x?'<img src="'+x.u+'" width="300" alt="'+esc(x.c||'活動照片')+'"><br>'+esc(x.c||''):'')+'</td>'}).join('')+'</tr>'}h+='</tbody></table>'}
+      else h+='<div class="phgrid ph">'+ph.map(function(x,j){return'<figure><img src="'+esc(x.u)+'" alt="'+esc(x.c||'活動照片')+'" data-a="supImg" data-id="'+esc(e.id)+'" data-n="'+j+'" style="cursor:zoom-in"><figcaption class="rem">'+esc(x.c||'')+'</figcaption></figure>'}).join('')+'</div>';
+    }else h+='<p class="rem">(無照片)</p>';
+  });
+  return h;
+}
+async function supFetchPh(evs,onStep){
+  var need=evs.filter(function(e){return e.phN>0&&!phCache(e)});
+  for(var i=0;i<need.length;i+=4){
+    var b=need.slice(i,i+4),r=await window.__team.photos(b.map(function(e){return{uid:e._src,eventId:e.id}}));
+    b.forEach(function(e){PHC[e.id]={n:e.phN,list:(r.photos&&r.photos[e.id])||[]}});
+    if(onStep)onStep(Math.min(need.length,i+4),need.length);
+  }
+}
+async function supRepPhotos(){
+  if(SV.phRun)return;
+  var need=supSelEvents().filter(function(e){return e.phN>0&&!phCache(e)});
+  if(!need.length)return;
+  SV.phRun=true;SV.phErr='';SV.phDone=0;SV.phTot=need.length;sched();
+  try{await supFetchPh(need,function(d,t){SV.phDone=d;SV.phTot=t;sched()})}catch(e){SV.phErr=String(e&&e.message||e)}
+  SV.phRun=false;sched();
+  if(!SV.phErr&&supSelEvents().some(function(e){return e.phN>0&&!phCache(e)}))supRepPhotos();
+}
+function htmlToMht(html){
+  var imgs=[],n=0,NL='\r\n';
+  html=html.replace(/src="data:(image\/[a-z+]+);base64,([^"]+)"/g,function(m,t,b){n++;var loc='file:///C:/report/img'+n+'.'+(t.indexOf('png')>0?'png':'jpg');imgs.push({t:t,b:b,loc:loc});return'src="'+loc+'"'});
+  var B='----=_NextPart_sup_'+Date.now(),wrap=function(x){return x.replace(/(.{76})/g,'$1'+NL)};
+  var out='MIME-Version: 1.0'+NL+'Content-Type: multipart/related; boundary="'+B+'"; type="text/html"'+NL+NL+'--'+B+NL+'Content-Type: text/html; charset="utf-8"'+NL+'Content-Transfer-Encoding: base64'+NL+'Content-Location: file:///C:/report/report.htm'+NL+NL+wrap(btoa(unescape(encodeURIComponent(html))))+NL;
+  imgs.forEach(function(i){out+=NL+'--'+B+NL+'Content-Type: '+i.t+NL+'Content-Transfer-Encoding: base64'+NL+'Content-Location: '+i.loc+NL+NL+wrap(i.b)+NL});
+  return out+NL+'--'+B+'--'+NL;
+}
+
+/* ----- 事件 ----- */
+document.addEventListener('change',function(e){
+  var t=e.target;if(!t||!t.closest||!TS)return;
+  if(t.hasAttribute('data-pick')){SV.sel[t.value]=t.checked;var n=supSelEvents().length,c=document.getElementById('selcnt'),b=document.getElementById('repbtn');if(c)c.textContent='已選 '+n+' 場(目前清單 '+supMonList().length+' 場)';if(b){b.disabled=!n;b.textContent='產生月報('+n+' 場)'}if(SV.rep){if(!n)SV.rep=false;else supRepPhotos();sched()}return}
+  var k=t.getAttribute('data-sc');if(!k)return;
+  var v=t.type==='checkbox'?t.checked:t.value;
+  if(k==='mon'){SV.mon=v;SV.sel={};SV.rep=false;SV.mp=SV.mo=SV.ms='';SV.mq='';SV.mph=false}
+  else SV[k]=v;
+  sched();
+});
+document.addEventListener('input',function(e){var t=e.target;if(t&&t.hasAttribute&&t.hasAttribute('data-sq')){SV.mq=t.value;clearTimeout(SV._qt);SV._qt=setTimeout(function(){sched();setTimeout(function(){var i=document.querySelector('[data-sq]');if(i){i.focus();try{i.setSelectionRange(i.value.length,i.value.length)}catch(x){}}},0)},350)}});
+Object.assign(A,{
+  supsub:function(d){SV.sub=d.v;sched()},
+  supRefresh:function(){supLoad(true)},
+  supProj:function(d){supProjOpen(d.id)},
+  supSelAll:function(){supMonList().forEach(function(e){SV.sel[e.id]=true});if(SV.rep)supRepPhotos();sched()},
+  supSelDone:function(){SV.sel={};supMonList().forEach(function(e){if(evSt(e)==='已辦理')SV.sel[e.id]=true});if(SV.rep)supRepPhotos();sched()},
+  supSelPh:function(){SV.sel={};supMonList().forEach(function(e){if(e.phN>0)SV.sel[e.id]=true});if(SV.rep)supRepPhotos();sched()},
+  supSelNone:function(){SV.sel={};SV.rep=false;sched()},
+  supRep:function(){SV.rep=true;SV.phErr='';sched();supRepPhotos();setTimeout(function(){var el=document.getElementById('suprep');if(el)el.scrollIntoView({behavior:'smooth',block:'start'})},300)},
+  supRepHide:function(){SV.rep=false;sched()},
+  supPrint:function(){window.print()},
+  supDoc:async function(){
+    var evs=supSelEvents();if(!evs.length)return;
+    try{
+      if(evs.some(function(e){return e.phN>0&&!phCache(e)})){toast('先載入照片,請稍候…');await supFetchPh(evs)}
+      var body=supReport(true),html='<!doctype html><html lang="zh-Hant" xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word"><head><meta charset="utf-8"><meta name="ProgId" content="Word.Document"><title>月度方案活動彙整</title><style>body{font-family:"Microsoft JhengHei","Noto Sans TC",sans-serif;font-size:11pt;color:#161616}table{border-collapse:collapse;width:100%}th,td{border:1px solid #666;padding:4px 6px;vertical-align:top;font-size:10.5pt}th{background:#eee}h1{text-align:center;font-size:16pt}h4{font-size:12pt;margin:14pt 0 4pt}p{margin:2pt 0}.ph td{border:1px solid #666;padding:4pt}img{max-width:100%}</style></head><body>'+body+'</body></html>';
+      await downloads.save({filename:'月度方案活動彙整_'+SV.mon+'.doc',data:htmlToMht(html)});toast('已儲存 Word 檔(.doc),用 Word 開啟,若跳出格式提示請選「是」');sched();
+    }catch(e){if(e&&e.code!=='declined')toast('下載失敗:'+String(e&&e.message||e))}
+  },
+  supXlsx:function(){supXlsx()},
+  supGallery:async function(d){
+    var e=TS&&TS.events.get(d.id);if(!e)return;
+    try{
+      if(!phCache(e)){toast('照片載入中…');await supFetchPh([e])}
+      var ph=phCache(e)||[];
+      document.getElementById('layer').innerHTML='<div class="ov"><div class="modal wide" role="dialog" aria-modal="true" aria-labelledby="mt"><header id="mt">活動照片:'+esc(e.name||'')+'('+esc(evDate(e))+')</header><div style="padding:1rem 1.1rem"><div class="phgrid">'+(ph.length?ph.map(function(x,j){return'<figure><img src="'+esc(x.u)+'" alt="'+esc(x.c||'活動照片')+'" data-a="supImg" data-id="'+esc(e.id)+'" data-n="'+j+'" style="cursor:zoom-in"><figcaption class="rem">'+esc(x.c||'')+'</figcaption></figure>'}).join(''):'<div class="rem">沒有照片</div>')+'</div></div><div class="foot"><button class="btn pri" data-a="mclose">關閉</button></div></div></div>';
+      modalOpen=true;modalDirty=false;
+    }catch(err){toast('無法載入照片:'+String(err&&err.message||err))}
+  },
+  supImg:function(d){
+    var c=PHC[d.id],x=c&&c.list[Number(d.n)];if(!x)return;
+    document.getElementById('layer').innerHTML='<div class="ov"><div class="modal wide" role="dialog" aria-modal="true" aria-label="照片放大"><header>'+esc(x.c||'活動照片')+'</header><div style="padding:1rem;text-align:center"><img src="'+esc(x.u)+'" alt="'+esc(x.c||'活動照片')+'" style="max-width:100%;max-height:75vh"></div><div class="foot"><button class="btn pri" data-a="mclose">關閉</button></div></div></div>';
+    modalOpen=true;modalDirty=false;
+  }
+});
 
 /* ---------- boot ---------- */
 async function boot(){
