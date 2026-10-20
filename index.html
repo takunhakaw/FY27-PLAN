@@ -222,6 +222,11 @@ body{margin:0;padding-left:env(safe-area-inset-left,0px);padding-right:env(safe-
  #suprep table,#suprep figure{break-inside:avoid}
  .phgrid{grid-template-columns:repeat(3,1fr)}
 }
+
+.evgrp{display:grid;gap:.1rem;margin-bottom:.4rem}
+.evgrp .gh{display:flex;align-items:center;gap:.6rem;flex-wrap:wrap;padding:.5rem .6rem;background:var(--accent-soft);border-radius:6px;position:sticky;top:0;z-index:1}
+.evgrp .gh small{color:var(--muted);font-size:.8rem}
+.evgrp .gh .btn{margin-left:auto}
 </style>
 
 </head>
@@ -567,7 +572,7 @@ var CATS=['講座/授課鐘點費','專家學者出席費','講師差旅費','�
 function catNorm(c){c=String(c==null?'':c).trim();var k=c.replace(/\s/g,'').replace(/／/g,'/');for(var i=0;i<CATS.length;i++)if(CATS[i]===k)return CATS[i];return c}
 function catOk(c){return CATS.indexOf(c)>=0}
 function catWarn(B){var bad=B.filter(function(b){return!catOk(b.cat)});if(!bad.length)return'';var nm={};bad.forEach(function(b){nm[b.cat||'(未填類別)']=1});return'<div class="note warn">提醒:有 '+bad.length+' 筆預算的經費類別不在公司規定的 17 項內('+esc(Object.keys(nm).slice(0,5).join('、'))+')。不影響系統運作,建議編輯該項目改選規定類別,成果報告會依類別彙總。</div>'}
-function evSt(e){var t=e&&e.status;return t==='已辦理'||t==='取消'?t:'未辦理'}
+function evSt(e){if(e&&((e.photos&&e.photos.length)||e.phN>0))return'已辦理';var t=e&&e.status;return t==='已辦理'||t==='取消'?t:'未辦理'}
 function allCats(){var m={};S.budgets.forEach(function(b){if(b.cat)m[b.cat]=1});return Object.keys(m).sort()}
 function catOf(b){return b.cat||'未分類'}
 function catList(B){var m={},o=[];B.forEach(function(b){var c=catOf(b);if(!m[c]){m[c]=1;o.push(c)}});var rk=function(c){var i=CATS.indexOf(c);return c==='未分類'?999:i>=0?i:500};o.sort(function(a,b){return rk(a)-rk(b)||(a>b?1:-1)});return o}
@@ -877,7 +882,9 @@ function openEvPhotos(id){var e=S.events.get(id);if(!e)return;window.__ph={id:id
 async function evPhotoAdd(files){var s0=window.__ph;if(!s0)return;files=files.filter(Boolean);var bad=0,n=0;
   for(var i=0;i<files.length;i++){var msg=document.getElementById('phmsg');if(msg)msg.textContent='處理中… '+(i+1)+'/'+files.length;
     try{s0.list.push({u:await shrink(files[i],1000,220000),c:''});n++}catch(e){bad++}}
-  try{await saveDoc('events',s0.id,{photos:s0.list})}catch(e){toast('照片儲存失敗');return}
+  var e0=S.events.get(s0.id),auto=n>0&&e0&&e0.status!=='已辦理',up={photos:s0.list};if(n>0)up.status='已辦理';
+  try{await saveDoc('events',s0.id,up)}catch(e){toast('照片儲存失敗');return}
+  if(auto)toast('已上傳照片,這個場次自動標示為「已辦理」');
   evPhotosDraw();var m2=document.getElementById('phmsg');if(m2)m2.textContent=(n?'已新增 '+n+' 張並儲存。':'')+(bad?bad+' 個檔案無法讀取(請選擇圖片檔)。':'')}
 function eventTab(p,c){
   var evs=by(c.EV,'date').map(function(e){
@@ -1903,6 +1910,8 @@ function supStrip(t){
 function meterHtml(rate){return'<span class="meter'+(rate>100?' over':rate>=90?' hi':'')+'" style="min-width:4.5rem;display:inline-block;vertical-align:middle"><i style="width:'+Math.min(100,rate)+'%"></i></span> '+rate+'%'}
 function supMonthsOfEvents(){var m={};TS.events.forEach(function(e){if(e.date)m[e.date.slice(0,7)]=(m[e.date.slice(0,7)]||0)+1});return m}
 function supAtt(){var m={};TS.attendances.forEach(function(a){var x=m[a.eventId]=m[a.eventId]||{times:0,ppl:{}};x.times+=Number(a.times)||0;(a.roster||[]).forEach(function(cd){x.ppl[a.kind+'|'+cd]=1})});return m}
+function pjCmp(a,b){var x=supOwner(a)+'|'+(a.code||'')+'|'+(a.name||''),y=supOwner(b)+'|'+(b.code||'')+'|'+(b.name||'');return x>y?1:x<y?-1:0}
+function evCmpPj(a,b){var pa=TS.projects.get(a.projectId)||{},pb=TS.projects.get(b.projectId)||{};if(a.projectId!==b.projectId)return pjCmp(pa,pb)||(a.projectId>b.projectId?1:-1);return evCmp(a,b)}
 function evCmp(a,b){var pa=TS.projects.get(a.projectId)||{},pb=TS.projects.get(b.projectId)||{};
   return(a.date||'')>(b.date||'')?1:(a.date||'')<(b.date||'')?-1:(a.start||'')>(b.start||'')?1:(a.start||'')<(b.start||'')?-1:((pa.code||'')>(pb.code||'')?1:-1)}
 
@@ -1936,11 +1945,17 @@ function supDash(){
   var h=supFilterBar()+supStrip(tot);
   if(wf)h+='<div class="note warn" role="status">有 <b>'+wf+'</b> 個方案需要關注(預算、保留款、場次或紀錄不完整),表格最右欄有說明;勾選上方「只看有警示的方案」可只看這些。</div>';
   else if(rows.length)h+='<div class="note ok">目前沒有需要關注的方案。</div>';
+  var bad=Object.keys(TM.users).map(function(k){return TM.users[k]}).filter(function(u){return u.err}).map(function(u){return u.name});
+  if(bad.length)h+='<div class="note bad">以下帳號的雲端資料讀取失敗,方案可能沒有顯示出來:'+esc(bad.join('、'))+'。請按「重新整理資料」再試,仍失敗請聯絡管理員。</div>';
   if(empty.length)h+='<div class="note info">尚未有任何資料的帳號:'+esc(empty.join('、'))+'(可能還沒登入使用,或尚未同步)。</div>';
+  var cnt={};TS.projects.forEach(function(p){cnt[p._src]=(cnt[p._src]||0)+1});
+  h+='<details class="nosp" style="margin:0 0 1rem"><summary style="cursor:pointer;font-size:.88rem;color:var(--accent)">各社工資料概況(確認每位社工的資料是否都已同步進來)</summary><div class="tw"><table><thead><tr><th>社工</th><th>身分</th><th class="n">方案數</th><th class="n">雲端資料筆數</th><th>最後同步</th><th>狀態</th></tr></thead><tbody>'
+   +Object.keys(TM.users).map(function(k){return TM.users[k]}).sort(function(a,b){return a.name>b.name?1:-1}).map(function(u){var c=cnt[u.id]||0,st=u.err?'讀取失敗':!u.n?'尚無資料':!c?'有資料但沒有方案':'正常';
+     return'<tr><td>'+esc(u.name)+'</td><td>'+esc(u.role||'')+'</td><td class="n">'+c+'</td><td class="n">'+(u.n||0)+'</td><td>'+(u.at?new Date(u.at).toLocaleString('zh-TW',{hour12:false}):'—')+'</td><td'+(st==='正常'?'':' style="color:var(--warn)"')+'>'+st+'</td></tr>'}).join('')+'</tbody></table></div></details>';
   if(!shown.length)return h+'<div class="empty"><b>沒有符合條件的方案</b>請調整上方篩選條件。</div>';
   h+='<div class="tw"><table><thead><tr><th>社工</th><th>方案</th><th>月份</th><th>狀態</th><th class="n">預算</th><th class="n">已核銷</th><th>執行率</th><th class="n">場次</th><th class="n">人次達成</th><th>下次活動</th><th>警示</th></tr></thead><tbody>'
    +shown.map(function(r){var p=r.p,c=r.c;
-     return'<tr><td style="white-space:nowrap">'+esc(supOwner(p))+'</td><td><button style="border:0;background:none;color:var(--accent);text-align:left;padding:0;font:inherit;cursor:pointer;text-decoration:underline" data-a="supProj" data-id="'+esc(p.id)+'">'+esc(p.name||'(未命名)')+'</button><div class="rem">'+esc(p.code||'')+(p.center?' ・ '+esc(p.center):'')+' ・ '+esc(p.fy||'FY26')+'</div></td><td style="white-space:nowrap">'+esc(p.month||'')+'</td><td><span class="pill '+pillCls(pst(p))+'">'+esc(pst(p))+'</span></td>'
+     return'<tr><td>'+esc(supOwner(p))+'</td><td><button style="border:0;background:none;color:var(--accent);text-align:left;padding:0;font:inherit;cursor:pointer;text-decoration:underline" data-a="supProj" data-id="'+esc(p.id)+'">'+esc(p.name||'(未命名)')+'</button><div class="rem">'+esc(p.code||'')+(p.center?' ・ '+esc(p.center):'')+' ・ '+esc(p.fy||'FY26')+'</div></td><td>'+esc(p.month||'')+'</td><td><span class="pill '+pillCls(pst(p))+'">'+esc(pst(p))+'</span></td>'
       +'<td class="n">$'+money(c.total)+'</td><td class="n">$'+money(c.spent)+'</td><td>'+meterHtml(c.rate)+'</td><td class="n">'+r.e.done+' / '+r.e.all+'</td><td class="n">'+(c.expTimes?c.timeRate+'%':'—')+'</td><td>'+(c.next?esc(c.next.date.slice(5))+' '+esc(c.next.name):'—')+'</td>'
       +'<td>'+(r.f.length?r.f.map(function(x){return'<span class="flag warn" style="display:inline-block;margin:0 .2rem .2rem 0">'+esc(x)+'</span>'}).join(''):'<span class="rem">—</span>')+'</td></tr>'}).join('')
    +'</tbody></table></div>';
@@ -2036,9 +2051,10 @@ function supMonList(){
     if(SV.mph&&!(e.phN>0))return;
     if(q&&(String(e.name||'')+' '+String(e.place||'')+' '+String(p.name||'')).toLowerCase().indexOf(q)<0)return;
     out.push(e)});
-  return out.sort(evCmp);
+  return out.sort(evCmpPj);
 }
-function supSelEvents(){var r=[];Object.keys(SV.sel).forEach(function(id){if(!SV.sel[id])return;var e=TS.events.get(id);if(e&&e.date&&e.date.slice(0,7)===SV.mon)r.push(e)});return r.sort(evCmp)}
+function supSelEvents(){var r=[];Object.keys(SV.sel).forEach(function(id){if(!SV.sel[id])return;var e=TS.events.get(id);if(e&&e.date&&e.date.slice(0,7)===SV.mon)r.push(e)});return r.sort(evCmpPj)}
+function supGroups(list){var gs=[];list.forEach(function(e){var g=gs[gs.length-1];if(!g||g.id!==e.projectId){g={id:e.projectId,list:[]};gs.push(g)}g.list.push(e)});return gs}
 function supMon(){
   var ms=supMonthsOfEvents(),keys=Object.keys(ms).sort().reverse();
   if(!keys.length)return'<div class="empty"><b>目前還沒有任何活動場次</b>社工建立場次後,這裡就能按月份整理。</div>';
@@ -2056,8 +2072,10 @@ function supMon(){
    +'<label style="display:flex;gap:.35rem;align-items:center;font-size:.88rem;padding-bottom:.45rem"><input type="checkbox" data-sc="mph"'+(SV.mph?' checked':'')+'> 只顯示有照片的</label></div>';
   h+='<section class="sec nosp"><header>選擇要放進月報的場次 <span class="rem" id="selcnt" role="status" style="margin-left:.5rem">已選 '+sel.length+' 場(目前清單 '+list.length+' 場)</span></header><div class="body">'
    +'<div class="actions" style="margin-bottom:.6rem"><button class="btn sm" data-a="supSelAll">全選目前清單</button><button class="btn sm" data-a="supSelDone">只選已辦理</button><button class="btn sm" data-a="supSelPh">只選有照片</button><button class="btn sm" data-a="supSelNone">全部取消</button><button class="btn pri" data-a="supRep"'+(sel.length?'':' disabled')+' id="repbtn">產生月報('+sel.length+' 場)</button></div>'
-   +(list.length?'<div class="evlist">'+list.map(function(e){var p=TS.projects.get(e.projectId)||{},a=att[e.id],st=evSt(e);
-      return'<label class="evpick"><input type="checkbox" data-pick value="'+esc(e.id)+'"'+(SV.sel[e.id]?' checked':'')+'><span class="d">'+esc(e.date.slice(5))+(e.endDate&&e.endDate>e.date?'~'+esc(e.endDate.slice(5)):'')+'<small>'+esc(e.start||'')+'</small></span><span class="n"><b>'+esc(e.name||'(未命名)')+'</b><small>'+esc(p.name||'')+' ・ '+esc(supOwner(p))+(e.place?' ・ '+esc(e.place):'')+'</small></span><span class="m"><span class="pill '+(st==='已辦理'?'run':st==='取消'?'draft':'wait')+'">'+st+'</span><small>'+(a?a.times+' 人次':'')+' '+(e.phN>0?'📷'+e.phN:'')+' '+(String(e.summary||'').trim()?'':'<span style="color:var(--warn)">缺概況</span>')+'</small></span></label>'}).join('')+'</div>':'<div class="empty" style="margin:0"><b>這個條件下沒有場次</b>請調整篩選條件。</div>')
+   +(list.length?'<div class="evlist">'+supGroups(list).map(function(g){var p=TS.projects.get(g.id)||{},k=g.list.filter(function(e){return SV.sel[e.id]}).length,all=k===g.list.length;
+      return'<div class="evgrp"><div class="gh"><b>'+esc(p.name||'(未命名方案)')+'</b><small>'+esc((p.code?p.code+' ・ ':'')+supOwner(p)+' ・ '+g.list.length+' 場')+'</small><button class="btn sm" data-a="supSelPj" data-id="'+esc(g.id)+'">'+(all?'取消此方案':'全選此方案')+'</button></div>'
+       +g.list.map(function(e){var a=att[e.id],st=evSt(e);
+        return'<label class="evpick"><input type="checkbox" data-pick value="'+esc(e.id)+'"'+(SV.sel[e.id]?' checked':'')+'><span class="d">'+esc(e.date.slice(5))+(e.endDate&&e.endDate>e.date?'~'+esc(e.endDate.slice(5)):'')+'<small>'+esc(e.start||'')+'</small></span><span class="n"><b>'+esc(e.name||'(未命名)')+'</b><small>'+esc(e.place||'')+'</small></span><span class="m"><span class="pill '+(st==='已辦理'?'run':st==='取消'?'draft':'wait')+'">'+st+'</span><small>'+(a?a.times+' 人次 ':'')+(e.phN>0?'📷'+e.phN+' ':'')+(String(e.summary||'').trim()?'':'<span style="color:var(--warn)">缺概況</span>')+'</small></span></label>'}).join('')+'</div>'}).join('')+'</div>':'<div class="empty" style="margin:0"><b>這個條件下沒有場次</b>請調整篩選條件。</div>')
    +'</div></section>';
   if(SV.rep&&sel.length){
     h+='<div class="actions nosp" style="margin:.8rem 0"><button class="btn pri" data-a="supPrint">🖨 列印 / 存成 PDF</button><button class="btn" data-a="supDoc">⬇ 下載 Word 檔(.doc)</button><button class="btn" data-a="supRepHide">收起月報</button>'
@@ -2068,25 +2086,27 @@ function supMon(){
 }
 function phCache(e){var c=PHC[e.id];return c&&c.n===e.phN?c.list:null}
 function supReport(doc){
-  var evs=supSelEvents(),att=supAtt(),y=SV.mon.slice(0,4),m=Number(SV.mon.slice(5)),cen={},pjs={},times=0,pcs=0;
-  evs.forEach(function(e){var p=TS.projects.get(e.projectId)||{};if(p.center)cen[p.center]=1;pjs[e.projectId]=1;var a=att[e.id];if(a)times+=a.times;pcs+=e.phN||0});
+  var evs=supSelEvents(),att=supAtt(),y=SV.mon.slice(0,4),m=Number(SV.mon.slice(5)),cen={},times=0,pcs=0,gs=supGroups(evs);
+  evs.forEach(function(e){var p=TS.projects.get(e.projectId)||{};if(p.center)cen[p.center]=1;var a=att[e.id];if(a)times+=a.times;pcs+=e.phN||0});
   var h='<p style="text-align:center">台灣世界展望會'+esc(Object.keys(cen).join('、'))+'</p><h1>'+y+' 年 '+m+' 月 方案活動場次與照片彙整</h1>'
-   +'<p>製表日期:'+today()+'　共 '+evs.length+' 場、'+Object.keys(pjs).length+' 個方案、出席 '+times+' 人次、照片 '+pcs+' 張</p>'
-   +(doc?'':'<div style="overflow-x:auto">')+'<table><thead><tr><th>#</th><th>日期</th><th>活動名稱</th><th>方案</th><th>社工</th><th>狀態</th><th>出席人次</th></tr></thead><tbody>'
-   +evs.map(function(e,i){var p=TS.projects.get(e.projectId)||{},a=att[e.id];return'<tr><td>'+(i+1)+'</td><td>'+esc(evDate(e))+'</td><td>'+esc(e.name||'')+'</td><td>'+esc(p.name||'')+'</td><td>'+esc(supOwner(p))+'</td><td>'+esc(evSt(e))+'</td><td>'+(a?a.times:'—')+'</td></tr>'}).join('')+'</tbody></table>'+(doc?'':'</div>');
-  evs.forEach(function(e,i){
-    var p=TS.projects.get(e.projectId)||{},a=att[e.id],ph=phCache(e);
-    h+='<h4>'+(i+1)+'. '+esc(evDate(e))+(e.start?' '+esc(e.start)+(e.end?'–'+esc(e.end):''):'')+'　'+esc(e.name||'')+'</h4>'
-     +'<table><tbody><tr><th style="width:18%">方案</th><td>'+esc((p.code?p.code+' ':'')+(p.name||''))+'</td><th style="width:14%">主責社工</th><td>'+esc(supOwner(p))+'</td></tr>'
-     +'<tr><th>地點</th><td>'+esc(e.place||p.place||'')+'</td><th>負責人員</th><td>'+esc(e.owner||'')+'</td></tr>'
-     +'<tr><th>狀態</th><td>'+esc(evSt(e))+'</td><th>出席</th><td>'+(a?a.times+' 人次(約 '+Object.keys(a.ppl).length+' 人)':'尚無出席紀錄')+(e.plannedPeople?'；預計 '+esc(e.plannedPeople)+' 人':'')+'</td></tr></tbody></table>'
-     +(String(e.content||'').trim()?'<p><b>活動內容</b><br>'+nl(e.content)+'</p>':'')
-     +'<p><b>執行概況</b><br>'+(String(e.summary||'').trim()?nl(e.summary):'<span style="color:#8a5a00">(社工尚未填寫)</span>')+'</p>';
-    if(e.phN>0){
-      if(!ph)h+='<p class="rem">照片載入中…(共 '+e.phN+' 張)</p>';
-      else if(doc){h+='<table class="ph"><tbody>';for(var j=0;j<ph.length;j+=2){h+='<tr>'+[ph[j],ph[j+1]].map(function(x){return'<td style="width:50%">'+(x?'<img src="'+x.u+'" width="300" alt="'+esc(x.c||'活動照片')+'"><br>'+esc(x.c||''):'')+'</td>'}).join('')+'</tr>'}h+='</tbody></table>'}
-      else h+='<div class="phgrid ph">'+ph.map(function(x,j){return'<figure><img src="'+esc(x.u)+'" alt="'+esc(x.c||'活動照片')+'" data-a="supImg" data-id="'+esc(e.id)+'" data-n="'+j+'" style="cursor:zoom-in"><figcaption class="rem">'+esc(x.c||'')+'</figcaption></figure>'}).join('')+'</div>';
-    }else h+='<p class="rem">(無照片)</p>';
+   +'<p>製表日期:'+today()+'　共 '+gs.length+' 個方案、'+evs.length+' 場'+(times?'、出席 '+times+' 人次':'')+(pcs?'、照片 '+pcs+' 張':'')+'</p>'
+   +(doc?'':'<div style="overflow-x:auto">')+'<table><thead><tr><th>方案</th><th>主責社工</th><th>場次</th><th>出席人次</th><th>照片</th></tr></thead><tbody>'
+   +gs.map(function(g){var p=TS.projects.get(g.id)||{},t=0,ph=0;g.list.forEach(function(e){var a=att[e.id];if(a)t+=a.times;ph+=e.phN||0});return'<tr><td>'+esc((p.code?p.code+' ':'')+(p.name||''))+'</td><td>'+esc(supOwner(p))+'</td><td>'+g.list.length+'</td><td>'+(t||'')+'</td><td>'+(ph||'')+'</td></tr>'}).join('')+'</tbody></table>'+(doc?'':'</div>');
+  gs.forEach(function(g,gi){
+    var p=TS.projects.get(g.id)||{};
+    h+='<h3 style="margin:16pt 0 4pt;border-bottom:2px solid #888;font-size:13pt">'+(gi+1)+'. '+esc((p.code?p.code+' ':'')+(p.name||'(未命名方案)'))+'</h3><p>主責社工:'+esc(supOwner(p))+(p.center?'　'+esc(p.center):'')+'　本月 '+g.list.length+' 場</p>';
+    g.list.forEach(function(e,i){
+      var a=att[e.id],ph=phCache(e),pairs=[['地點',e.place||p.place||''],['負責人員',e.owner||''],['狀態',evSt(e)],['出席',a?a.times+' 人次(約 '+Object.keys(a.ppl).length+' 人)':''],['預計人數',e.plannedPeople||'']].filter(function(x){return String(x[1]).trim()});
+      h+='<h4>'+(gi+1)+'-'+(i+1)+'　'+esc(evDate(e))+(e.start?' '+esc(e.start)+(e.end?'–'+esc(e.end):''):'')+'　'+esc(e.name||'')+'</h4>';
+      if(pairs.length){h+='<table><tbody>';for(var k=0;k<pairs.length;k+=2){var x=pairs[k],z=pairs[k+1];h+='<tr><th style="width:15%">'+esc(x[0])+'</th><td'+(z?'':' colspan="3"')+'>'+esc(x[1])+'</td>'+(z?'<th style="width:15%">'+esc(z[0])+'</th><td>'+esc(z[1])+'</td>':'')+'</tr>'}h+='</tbody></table>'}
+      if(String(e.content||'').trim())h+='<p><b>活動內容</b><br>'+nl(e.content)+'</p>';
+      if(String(e.summary||'').trim())h+='<p><b>執行概況</b><br>'+nl(e.summary)+'</p>';
+      if(e.phN>0){
+        if(!ph)h+='<p class="rem">照片載入中…(共 '+e.phN+' 張)</p>';
+        else if(doc){h+='<table class="ph"><tbody>';for(var j=0;j<ph.length;j+=2){h+='<tr>'+[ph[j],ph[j+1]].map(function(x){return'<td style="width:50%">'+(x?'<img src="'+x.u+'" width="300" alt="'+esc(x.c||'活動照片')+'">'+(x.c?'<br>'+esc(x.c):''):'')+'</td>'}).join('')+'</tr>'}h+='</tbody></table>'}
+        else h+='<div class="phgrid ph">'+ph.map(function(x,j){return'<figure><img src="'+esc(x.u)+'" alt="'+esc(x.c||'活動照片')+'" data-a="supImg" data-id="'+esc(e.id)+'" data-n="'+j+'" style="cursor:zoom-in">'+(x.c?'<figcaption class="rem">'+esc(x.c)+'</figcaption>':'')+'</figure>'}).join('')+'</div>';
+      }
+    });
   });
   return h;
 }
@@ -2134,6 +2154,7 @@ Object.assign(A,{
   supSelAll:function(){supMonList().forEach(function(e){SV.sel[e.id]=true});if(SV.rep)supRepPhotos();sched()},
   supSelDone:function(){SV.sel={};supMonList().forEach(function(e){if(evSt(e)==='已辦理')SV.sel[e.id]=true});if(SV.rep)supRepPhotos();sched()},
   supSelPh:function(){SV.sel={};supMonList().forEach(function(e){if(e.phN>0)SV.sel[e.id]=true});if(SV.rep)supRepPhotos();sched()},
+  supSelPj:function(d){var l=supMonList().filter(function(e){return e.projectId===d.id}),all=l.every(function(e){return SV.sel[e.id]});l.forEach(function(e){SV.sel[e.id]=!all});if(SV.rep){if(supSelEvents().length)supRepPhotos();else SV.rep=false}sched()},
   supSelNone:function(){SV.sel={};SV.rep=false;sched()},
   supRep:function(){SV.rep=true;SV.phErr='';sched();supRepPhotos();setTimeout(function(){var el=document.getElementById('suprep');if(el)el.scrollIntoView({behavior:'smooth',block:'start'})},300)},
   supRepHide:function(){SV.rep=false;sched()},
