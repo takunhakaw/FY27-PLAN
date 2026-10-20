@@ -2112,19 +2112,25 @@ function supReport(doc){
       if(String(e.summary||'').trim())h+='<p><b>執行概況</b><br>'+nl(e.summary)+'</p>';
       if(e.phN>0){
         if(!ph)h+='<p class="rem">照片載入中…(共 '+e.phN+' 張)</p>';
-        else if(doc){ph.forEach(function(x){var w=x.w?Math.min(x.w,600):0,hh=w&&x.h?Math.round(x.h*w/x.w):0;h+='<p style="margin:6pt 0"><img src="'+x.u+'"'+(w?' width="'+w+'"'+(hh?' height="'+hh+'"':''):'')+' alt="'+esc(x.c||'活動照片')+'">'+(x.c?'<br>'+esc(x.c):'')+'</p>'})}
+        else if(doc){ph.forEach(function(x){var u=x.su||x.u,w=x.su?x.sw:(x.w?Math.min(x.w,600):0),hh=x.su?x.sh:(w&&x.h?Math.round(x.h*w/x.w):0);h+='<p style="margin:6pt 0"><img src="'+u+'"'+(w?' width="'+w+'"'+(hh?' height="'+hh+'"':''):'')+' alt="'+esc(x.c||'活動照片')+'">'+(x.c?'<br>'+esc(x.c):'')+'</p>'})}
         else h+='<div class="phflow">'+ph.map(function(x,j){return'<figure><img src="'+esc(x.u)+'" alt="'+esc(x.c||'活動照片')+'" data-a="supImg" data-id="'+esc(e.id)+'" data-n="'+j+'" style="cursor:zoom-in;'+(x.w?'width:'+x.w+'px;':'')+'max-width:100%;height:auto">'+(x.c?'<figcaption class="rem">'+esc(x.c)+'</figcaption>':'')+'</figure>'}).join('')+'</div>';
       }
     });
   });
   return h;
 }
+var SUP_DOC_MAX=480,SUP_DOC_Q=.6; /* 月報 Word 檔照片:最長邊像素、JPEG 品質(調小可縮小檔案) */
+function smallImg(im){
+  var sc=Math.min(1,SUP_DOC_MAX/Math.max(im.naturalWidth,im.naturalHeight)),cv=document.createElement('canvas');
+  cv.width=Math.max(1,Math.round(im.naturalWidth*sc));cv.height=Math.max(1,Math.round(im.naturalHeight*sc));
+  cv.getContext('2d').drawImage(im,0,0,cv.width,cv.height);
+  return{u:cv.toDataURL('image/jpeg',SUP_DOC_Q),w:cv.width,h:cv.height}}
 async function supFetchPh(evs,onStep){
   var need=evs.filter(function(e){return e.phN>0&&!phCache(e)});
   for(var i=0;i<need.length;i+=4){
     var b=need.slice(i,i+4),r=await window.__team.photos(b.map(function(e){return{uid:e._src,eventId:e.id}}));
     b.forEach(function(e){PHC[e.id]={n:e.phN,list:(r.photos&&r.photos[e.id])||[]}});
-    await Promise.all(b.reduce(function(a,e){return a.concat(PHC[e.id].list.map(function(x){return new Promise(function(res){var im=new Image();im.onload=function(){x.w=im.naturalWidth;x.h=im.naturalHeight;res()};im.onerror=function(){res()};im.src=x.u})}))},[]));
+    await Promise.all(b.reduce(function(a,e){return a.concat(PHC[e.id].list.map(function(x){return new Promise(function(res){var im=new Image();im.onload=function(){x.w=im.naturalWidth;x.h=im.naturalHeight;try{var sm=smallImg(im);x.su=sm.u;x.sw=sm.w;x.sh=sm.h}catch(e){}res()};im.onerror=function(){res()};im.src=x.u})}))},[]));
     if(onStep)onStep(Math.min(need.length,i+4),need.length);
   }
 }
