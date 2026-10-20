@@ -489,7 +489,7 @@ window.claude={use:async function(k){await gate;return{db:db,user:user,downloads
 (function(){
 'use strict';
 /* ---------- constants ---------- */
-var ROLES=['社工','督導'];
+var ROLES=['社工','督導','總督導','區處長'];
 var FYLIST=(function(){var a=[];for(var i=20;i<=60;i++)a.push('FY'+i);return a})();
 var STATUS=['草稿','待督導核示','待總督導核示','待區處長核示','執行中','結案待報告','已結案'];
 var APPROVER={'待督導核示':'督導','待總督導核示':'總督導','待區處長核示':'區處長'};
@@ -1078,6 +1078,9 @@ function projectView(p){
 
 /* ---------- annual POA budget (registered per 方案) ---------- */
 var SEP='\u0001';
+var TEAMV=false;
+function supPoa(){var cw=canWrite;canWrite=false;TEAMV=true;try{return poaView()}finally{TEAMV=false;canWrite=cw}}
+function planOwner(x){var u=TM.users[x._src];return(u&&u.name)||''}
 var PM={alloc:'POA 登記額',plan:'已編入方案計畫書',spent:'已核銷',left:'登記額 − 已核銷'};
 
 /* ---------- budget (計畫書預算) versions ---------- */
@@ -1132,7 +1135,8 @@ function codesOfMaps(){var c={};[].slice.call(arguments).forEach(function(m){Obj
 function mm(n){return n?money(n):'—'}
 function poaView(){
   var plans=[];S.poaPlans.forEach(function(x){plans.push(x)});plans.sort(function(a,b){return(a.createdAt||0)-(b.createdAt||0)});
-  var h='<h1>年度 POA 預算</h1><p class="sub">以方案(事工編碼)為單位登記整年度的 POA 預算。每次經費異動都是整年度的新版本,以最新版本為準,全年總額必須等於原始 POA。</p>';
+  var h=TEAMV?'<p class="sub" style="margin-top:0">整合全中心社工登記的年度 POA 與各方案的計畫書、核銷(唯讀)。若同一中心有多位社工各自登記,可用下方按鈕切換。</p>':'<h1>年度 POA 預算</h1><p class="sub">以方案(事工編碼)為單位登記整年度的 POA 預算。每次經費異動都是整年度的新版本,以最新版本為準,全年總額必須等於原始 POA。</p>';
+  if(!plans.length&&TEAMV)return h+'<div class="empty"><b>全中心尚未有人建立年度 POA</b>請社工先在自己的帳號登記並同步,再按「重新整理資料」。</div>';
   if(!plans.length)return h+'<div class="empty"><b>尚未建立年度 POA</b>先輸入原始 POA 年度總額,再逐一登記各方案的事工編碼、方案名稱與各月金額。之後每次經費異動都會留下新版本,可以隨時比對。'+(canWrite?'<div class="row"><button class="btn pri" data-a="poaNew">建立年度 POA</button><button class="btn" data-a="poaImportBtn">匯入 Excel 建立</button></div>':'')+'</div>';
   var plan=S.poaPlans.get(V.planId)||plans[0];V.planId=plan.id;
   var vs=versionsOf(plan.id),latest=vs[vs.length-1];
@@ -1142,14 +1146,14 @@ function poaView(){
   var over=[];Object.keys(st.spent).forEach(function(k){if((st.spent[k]||0)>(L[k]||0)+0.005)over.push(k)});
   var lab=function(k){var a=k.split(SEP);return a[0]+' '+codeName(a[0],latest)+'｜'+a[1]};
   var metric=V.metric||'alloc';
-  var chips=plans.length>1?'<div class="seg" style="margin-bottom:.8rem">'+plans.map(function(x){return'<button data-a="poaplan" data-id="'+x.id+'" aria-pressed="'+(x.id===plan.id)+'">'+esc(x.center+' '+x.fy)+'</button>'}).join('')+'</div>':'';
+  var chips=plans.length>1?'<div class="seg" style="margin-bottom:.8rem">'+plans.map(function(x){return'<button data-a="poaplan" data-id="'+x.id+'" aria-pressed="'+(x.id===plan.id)+'">'+esc(x.center+' '+x.fy+(TEAMV&&planOwner(x)?'('+planOwner(x)+')':''))+'</button>'}).join('')+'</div>':'';
   var acts=canWrite?'<div class="actions"><button class="btn pri" data-a="poaMemo">新增經費異動版本</button>'+'<button class="btn" data-a="poaEdit0">修改目前版本</button><button class="btn" data-a="poaImportBtn">匯入 Excel</button>'+(latest.ver>0?'<button class="btn bad" data-a="poaDelLatest">刪除最新版本</button>':'')+'<button class="btn" data-a="poaNew">另建年度 POA</button><button class="btn bad" data-a="poaDelPlan">刪除這份 POA</button></div>':'';
   h+=chips+'<div class="bar"><h2>'+esc(plan.center)+'　'+esc(plan.fy)+'</h2>'+acts+'</div>'
    +'<div class="strip"><div><small>原始 POA 年度總額</small><b>$'+money(plan.total)+'</b></div><div><small>生效版本</small><b>v'+latest.ver+(latest.ver?' 異動':' 原始')+'</b></div><div class="'+(Math.abs(lt-plan.total)>0.005?'neg':'')+'"><small>生效登記合計</small><b>$'+money(lt)+'</b></div><div><small>已編入方案計畫書</small><b>$'+money(planT)+'</b></div><div><small>已核銷</small><b>$'+money(spentT)+'</b></div><div class="'+(lt-spentT<0?'neg':'')+'"><small>年度剩餘(登記額−核銷)</small><b>$'+money(lt-spentT)+'</b></div></div>';
   if(Math.abs(lt-plan.total)>0.005)h+='<div class="note bad">生效版本合計 $'+money(lt)+' 與原始 POA $'+money(plan.total)+' 不符,請新增異動版本修正。</div>';
   if(over.length)h+='<div class="note bad">已核銷超過登記額:'+esc(over.slice(0,5).map(lab).join('、'))+(over.length>5?' 等 '+over.length+' 項':'')+'。請新增異動版本調整。</div>';
   var unb=[];S.projects.forEach(function(x){if(x.center!==plan.center)return;var cd=poaCodeFor(x);if(!cd||!Object.keys(L).some(function(k){return k.split(SEP)[0]===cd}))unb.push(x)});
-  if(unb.length)h+='<div class="note warn">以下「我的方案」尚未綁定到任何 POA 列,經費無法比對:'+esc(unb.slice(0,6).map(function(x){return x.name+'('+(x.code||'無編碼')+')'}).join('、'))+(unb.length>6?' 等 '+unb.length+' 個':'')+'。請按「修改目前版本」,在對應 POA 列的選單中綁定方案。</div>';
+  if(unb.length)h+='<div class="note warn">以下'+(TEAMV?'':'「我的方案」')+'方案尚未綁定到任何 POA 列,經費無法比對:'+esc(unb.slice(0,6).map(function(x){return x.name+'('+(x.code||'無編碼')+')'}).join('、'))+(unb.length>6?' 等 '+unb.length+' 個':'')+'。請按「修改目前版本」,在對應 POA 列的選單中綁定方案。</div>';
   if(planT>plan.total+0.005)h+='<div class="note bad">各方案計畫書經費合計 $'+money(planT)+',已超過年度 POA 總額 $'+money(plan.total)+'。</div>';
   var vl=vs.slice().reverse().map(function(v){var d=0,pv=vs[vs.indexOf(v)-1];if(pv){var a=cellMap(v.lines),b=cellMap(pv.lines),ks={};Object.keys(a).concat(Object.keys(b)).forEach(function(k){ks[k]=1});Object.keys(ks).forEach(function(k){if((a[k]||0)!==(b[k]||0))d++})}
     return'<button class="ver" data-a="poaver" data-id="'+v.id+'" aria-current="'+(v.id===sel.id)+'"><b><span>v'+v.ver+' '+(v.ver?'異動':'原始')+'</span>'+(v.id===latest.id?'<span class="pill run">生效中</span>':'')+'</b><small>'+esc(v.date||'')+(v.byName?' ・ '+esc(v.byName):'')+'</small><small>合計 $'+money(v.total)+(pv?' ・ 異動 '+d+' 格':'')+'</small>'+(v.reason&&v.ver?'<small>'+esc(v.reason)+'</small>':'')+(v.approver?'<small>核定:'+esc(v.approver)+'</small>':'')+'</button>'}).join('');
@@ -1157,7 +1161,7 @@ function poaView(){
   var codes=codesOfMaps(A,L,st.plan,st.spent);
   var srows=codes.map(function(code){var al=0,pl=0,sp=0;MONTHS.forEach(function(m){var k=code+SEP+m;al+=L[k]||0;pl+=st.plan[k]||0;sp+=st.spent[k]||0});var pr=projByCode(code,plan.center),bound=latest.binds&&latest.binds[code];
     var stt=!pr?'<span class="pill wait">尚未建立方案</span>':al===0?'<span class="pill bad">未登記 POA</span>':sp>al+.005?'<span class="pill bad">核銷超過登記額</span>':pl>al+.005?'<span class="pill bad">計畫書超過登記額</span>':'<span class="pill run">正常</span>';
-    return'<tr><td><b>'+esc(code)+'</b></td><td>'+esc(codeName(code,latest))+(pr?'<br><small>'+(latest.binds&&latest.binds[code]?'<span class="pill run">已綁定</span> ':'<span class="pill wait">依編碼比對</span> ')+esc(pr.name)+(pr.code!==code?'(方案編碼 '+esc(pr.code||'無')+')':'')+'</small>':'')+'</td><td class="n">'+money(al)+'</td><td class="n">'+(pr?money(pl):'—')+'</td><td class="n">'+(pr?money(al-pl):'—')+'</td><td class="n">'+money(sp)+'</td><td class="n">'+pct(sp,al)+'%</td><td>'+stt+'</td><td class="act">'+(pr?'<button class="btn sm" data-a="open" data-id="'+pr.id+'">開啟方案</button>':'')+'</td></tr>'});
+    return'<tr><td><b>'+esc(code)+'</b></td><td>'+esc(codeName(code,latest))+(pr?'<br><small>'+(latest.binds&&latest.binds[code]?'<span class="pill run">已綁定</span> ':'<span class="pill wait">依編碼比對</span> ')+esc(pr.name)+(pr.code!==code?'(方案編碼 '+esc(pr.code||'無')+')':'')+'</small>':'')+'</td><td class="n">'+money(al)+'</td><td class="n">'+(pr?money(pl):'—')+'</td><td class="n">'+(pr?money(al-pl):'—')+'</td><td class="n">'+money(sp)+'</td><td class="n">'+pct(sp,al)+'%</td><td>'+stt+'</td><td class="act">'+(pr?'<button class="btn sm" data-a="'+(TEAMV?'supProj':'open')+'" data-id="'+pr.id+'">'+(TEAMV?'查看方案':'開啟方案')+'</button>':'')+'</td></tr>'});
   var head='<th>方案</th>'+MONTHS.map(function(m){return'<th class="n">'+m+'</th>'}).join('')+'<th class="n">全年</th>';
   var colT=MONTHS.map(function(){return 0}),gt=0;
   var rows=codes.map(function(code){var rt=0;
@@ -1697,7 +1701,7 @@ function render(){
   mine.sort(sorter);all.sort(sorter);rev.sort(sorter);
   var role=myRole();
   if(!isSup()&&(V.tab==='all'||V.tab==='review'))V.tab='home';
-  if(supOn()&&(V.tab==='home'||V.tab==='all'||V.tab==='review'))V.tab='sup';
+  if(supOn()&&(V.tab==='home'||V.tab==='all'||V.tab==='review'||V.tab==='poa'||V.tab==='project'))V.tab='sup';
   if(V.tab==='sup'&&!supOn())V.tab='home';
   if(V.tab==='sup'&&!TS&&!TM.loading&&!TM.err)supLoad(false);
   if(V.tab==='project'&&!S.projects.get(V.pid)){V.tab='home';V.pid=null}
@@ -1708,7 +1712,7 @@ function render(){
   else if(V.tab==='poa')main=poaView();
   else if(V.tab==='review')main=homeView(rev,'待我審核','輪到你的角色('+role+')核示的方案。',false);
   else main=homeView(mine,'我的方案','你主責的所有方案,可用餘額與近期活動一目了然。',true);
-  var nav=(supOn()?[['sup','督導系統']]:[['home','我的方案']]).concat([['poa','年度 POA']]);
+  var nav=supOn()?[['sup','督導系統']]:[['home','我的方案'],['poa','年度 POA']];
   var cur=V.tab==='project'?(V.from||'home'):V.tab;
   app.innerHTML='<div class="top"><div class="wrap"><span class="brand">方案成果管理系統</span><nav class="nav" aria-label="主選單">'+nav.map(function(n){return'<button data-a="nav" data-v="'+n[0]+'"'+(cur===n[0]?' aria-current="true"':'')+'>'+n[1]+'</button>'}).join('')+'</nav><div class="who"><button class="btn sm" data-a="profile" title="修改顯示姓名與身分">'+esc(myName()||'設定姓名')+' ✎</button>'+window.__cloudButtons()+'<label for="rolesel" class="ro">身分</label><select id="rolesel" data-change="role">'+ROLES.map(function(r){return'<option'+(r===role?' selected':'')+'>'+r+'</option>'}).join('')+'</select></div></div></div>'
    +'<main class="wrap">'+(canWrite?'':'<div class="note warn" style="margin-top:1rem">你目前是唯讀身分,可以瀏覽但不能修改資料。請向方案擁有者要求「協作者」權限。</div>')+main+'</main>';
@@ -1927,9 +1931,9 @@ function supView(){
     return h+(TM.err?'<div class="note bad">'+esc(TM.err)+'</div><button class="btn" data-a="supRefresh">再試一次</button>':'<div class="note info" role="status">正在從 Google 雲端整合所有社工的資料,人數與照片多時可能需要十幾秒…</div>');
   }
   if(TM.err)h+='<div class="note bad">'+esc(TM.err)+'(目前顯示的是上一次載入的資料)</div>';
-  var tabs=[['dash','中心總覽'],['ana','數據分析'],['mon','月度場次與照片']];
+  var tabs=[['dash','中心總覽'],['ana','數據分析'],['poa','年度 POA(全中心)'],['mon','月度場次與照片']];
   h+='<div class="tabs nosp" role="tablist">'+tabs.map(function(t){return'<button role="tab" data-a="supsub" data-v="'+t[0]+'" aria-selected="'+(SV.sub===t[0])+'">'+t[1]+'</button>'}).join('')+'</div>';
-  return h+withTeam(function(){return SV.sub==='ana'?supAna():SV.sub==='mon'?supMon():supDash()});
+  return h+withTeam(function(){return SV.sub==='ana'?supAna():SV.sub==='mon'?supMon():SV.sub==='poa'?supPoa():supDash()});
 }
 function supFilterBar(){
   var fy={},ce={},ow={};TS.projects.forEach(function(p){fy[p.fy||'FY26']=1;ce[p.center||'']=1;ow[p.owner]=1});
